@@ -9,8 +9,6 @@
 
 #![allow(dead_code)]
 
-use crate::vtparse::Handler;
-
 /// Events produced by the ANSI parser
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnsiEvent {

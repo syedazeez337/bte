@@ -349,7 +349,6 @@ pub fn find_scenarios(dir: &str) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::explain::{ViolationCategory, ViolationSeverity, ViolationType};
     use crate::trace::TraceOutcome;
 
     fn sample_ci_test_result() -> CITestResult {

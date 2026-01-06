@@ -1,8 +1,5 @@
 //! Integration tests for BTE scenario parsing and execution
 
-use std::path::Path;
-use std::process::Command;
-
 #[test]
 fn test_scenario_parsing_valid() {
     let scenario = r#"
@@ -90,7 +87,7 @@ steps:
 
     let parsed: serde_yaml::Value = serde_yaml::from_str(scenario).expect("Failed to parse");
     let env = parsed["env"].as_mapping().expect("Should have env");
-    assert!(env.contains_key(&serde_yaml::Value::from("TEST_VAR")));
+    assert!(env.contains_key(&serde_yaml::Value::String("TEST_VAR".to_string())));
 }
 
 #[test]
