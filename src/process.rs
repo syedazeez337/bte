@@ -3,6 +3,8 @@
 //! This module handles forking and executing binaries inside a PTY,
 //! with proper stdio routing and environment isolation.
 
+#![allow(dead_code)]
+
 use crate::pty::{Pty, PtyConfig, PtyError};
 use nix::libc;
 use nix::sys::signal::{kill, Signal};

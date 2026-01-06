@@ -4,7 +4,7 @@
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)
-![Tests](https://img.shields.io/badge/tests-108-green.svg)
+![Tests](https://img.shields.io/badge/tests-200-green.svg)
 
 A deterministic behavioral testing engine for terminal applications with PTY control, replay capabilities, and invariant verification.
 
@@ -21,6 +21,26 @@ BTE (Behavioral Testing Engine) provides a framework for deterministically testi
 - Supports deterministic replay for debugging
 - Verifies behavioral invariants automatically
 
+## What's New in v0.2.0
+
+### First-Class Invariants
+- **ResponseTime**: Verify applications respond within expected ticks
+- **MaxLatency**: Ensure maximum latency never exceeds thresholds
+- **ViewportValid**: Check cursor stays within visible viewport
+- **ScreenStability**: Detect screen flickering or instability
+- **ProcessTerminatedCleanly**: Validate clean exit with allowed signals
+- **NoOutputAfterExit**: Prevent output after process exit
+
+### Time-Aware Correctness
+- Tick-based timing instead of wall-clock dependencies
+- Deterministic clock for reproducible test runs
+- Explicit scheduling boundaries for replay
+
+### Enhanced Trace Format
+- Versioned trace format for forward compatibility
+- Checkpoint support for partial replay
+- RNG state preservation for exact reproduction
+
 ## Features
 
 ### Core Capabilities
@@ -31,7 +51,15 @@ BTE (Behavioral Testing Engine) provides a framework for deterministically testi
 
 ### Testing Framework
 - **Scenario Definition**: YAML/JSON declarative interaction format
-- **Invariant Verification**: Cursor bounds, deadlock detection, signal handling
+- **Invariant Verification**: 
+  - Cursor bounds checking
+  - Deadlock detection with timeouts
+  - Signal handling validation
+  - Screen content assertions (contains/not contains)
+  - **NEW**: Response time and latency constraints
+  - **NEW**: Viewport validity checks
+  - **NEW**: Process termination validation
+  - **NEW**: Screen stability detection
 - **Trace & Replay**: Structured JSON traces for failure reproduction
 - **Signal Injection**: SIGINT, SIGTERM, SIGKILL, SIGWINCH support
 
@@ -125,6 +153,18 @@ invariants:
   - type: no_deadlock
   - type: screen_contains
     pattern: "expected"
+  # v0.2.0 invariants:
+  - type: response_time
+    max_ticks: 100
+  - type: max_latency
+    max_ticks: 50
+  - type: viewport_valid
+  - type: screen_stability
+    min_ticks: 10
+  - type: process_terminated_cleanly
+    allowed_signals:
+      - 15
+  - type: no_output_after_exit
 
 seed: 42
 timeout_ms: 30000
@@ -187,9 +227,21 @@ steps:
 ├─────────────────────────────────────────────────────┤
 │  Testing Framework                                  │
 │  ├── Scenario Executor                             │
-│  ├── Invariant Engine (cursor, deadlock, etc.)     │
-│  ├── Trace Recorder (JSON format)                  │
+│  ├── Invariant Engine (v0.2.0: 11 invariants)      │
+│  │   ├── cursor_bounds, no_deadlock, signal_handled │
+│  │   ├── screen_contains, screen_not_contains       │
+│  │   ├── screen_stability, viewport_valid           │
+│  │   ├── response_time, max_latency                 │
+│  │   ├── process_terminated_cleanly                 │
+│  │   └── no_output_after_exit                       │
+│  ├── Trace Recorder (v2 format with checkpoints)   │
 │  └── Replay Engine (deterministic reproduction)    │
+├─────────────────────────────────────────────────────┤
+│  Opinionated Defaults (v0.2.0)                     │
+│  ├── DefaultScenarioTemplate (new, interactive,    │
+│  │   headless, resize_test, performance)            │
+│  ├── DefaultConfigurator (command-aware defaults)  │
+│  └── Timing/Signal suggestions                     │
 └─────────────────────────────────────────────────────┘
 ```
 

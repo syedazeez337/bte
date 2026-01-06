@@ -3,6 +3,8 @@
 //! This module provides key injection capabilities for testing terminal applications.
 //! It translates high-level key sequences into bytes that are written to the PTY.
 
+#![allow(dead_code)]
+
 use crate::process::{ProcessError, PtyProcess};
 use crate::scenario::{KeySequence, SpecialKey};
 

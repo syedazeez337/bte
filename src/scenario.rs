@@ -349,12 +349,54 @@ pub enum InvariantRef {
         pattern: String,
     },
 
+    /// No output after process exits
+    #[serde(rename = "no_output_after_exit")]
+    NoOutputAfterExit,
+
+    /// Process must terminate cleanly
+    #[serde(rename = "process_terminated_cleanly")]
+    ProcessTerminatedCleanly {
+        /// Allowed signal numbers for clean exit
+        #[serde(default)]
+        allowed_signals: Vec<i32>,
+    },
+
+    /// Screen must be stable (not changing)
+    #[serde(rename = "screen_stability")]
+    ScreenStability {
+        /// Minimum ticks of stability required
+        #[serde(default = "default_stable_ticks")]
+        min_ticks: u64,
+    },
+
+    /// Viewport must have valid dimensions
+    #[serde(rename = "viewport_valid")]
+    ViewportValid,
+
+    /// Response time must be within limit
+    #[serde(rename = "response_time")]
+    ResponseTime {
+        /// Maximum ticks before considered timeout
+        max_ticks: u64,
+    },
+
+    /// Maximum redraw latency
+    #[serde(rename = "max_latency")]
+    MaxLatency {
+        /// Maximum ticks for screen redraw
+        max_ticks: u64,
+    },
+
     /// Custom named invariant
     #[serde(rename = "custom")]
     Custom {
         /// Invariant name
         name: String,
     },
+}
+
+fn default_stable_ticks() -> u64 {
+    10
 }
 
 /// Validation error
@@ -374,22 +416,22 @@ impl std::error::Error for ValidationError {}
 
 impl Scenario {
     /// Load a scenario from YAML
-    pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {
+    pub fn _from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {
         serde_yaml::from_str(yaml)
     }
 
     /// Load a scenario from JSON
-    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+    pub fn _from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
 
     /// Serialize to YAML
-    pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
+    pub fn _to_yaml(&self) -> Result<String, serde_yaml::Error> {
         serde_yaml::to_string(self)
     }
 
     /// Serialize to JSON
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+    pub fn _to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
 
@@ -500,7 +542,7 @@ steps:
     keys: "exit\n"
 "#;
 
-        let scenario = Scenario::from_yaml(yaml).unwrap();
+        let scenario = Scenario::_from_yaml(yaml).unwrap();
         assert_eq!(scenario.name, "test scenario");
         assert_eq!(scenario.steps.len(), 2);
     }
@@ -516,7 +558,7 @@ steps:
   ]
 }"#;
 
-        let scenario = Scenario::from_json(json).unwrap();
+        let scenario = Scenario::_from_json(json).unwrap();
         assert_eq!(scenario.name, "test scenario");
         assert_eq!(scenario.steps.len(), 2);
     }
@@ -594,7 +636,7 @@ steps:
     ticks: 0
 "#;
 
-        let scenario = Scenario::from_yaml(yaml).unwrap();
+        let scenario = Scenario::_from_yaml(yaml).unwrap();
         let result = scenario.validate();
         assert!(result.is_err());
         let errors = result.unwrap_err();
@@ -628,8 +670,8 @@ steps:
         };
 
         // Both should serialize to readable YAML that can be diffed
-        let yaml1 = scenario1.to_yaml().unwrap();
-        let yaml2 = scenario2.to_yaml().unwrap();
+        let yaml1 = scenario1._to_yaml().unwrap();
+        let yaml2 = scenario2._to_yaml().unwrap();
 
         // They should be similar but with different names
         assert!(yaml1.contains("test1"));
@@ -655,7 +697,7 @@ steps:
     anywhere: true
 "#;
 
-        let scenario = Scenario::from_yaml(yaml).unwrap();
+        let scenario = Scenario::_from_yaml(yaml).unwrap();
         // All steps are pure data declarations
         for step in &scenario.steps {
             match step {
@@ -708,8 +750,8 @@ steps:
             timeout_ms: Some(5000),
         };
 
-        let yaml = scenario.to_yaml().unwrap();
-        let parsed = Scenario::from_yaml(&yaml).unwrap();
+        let yaml = scenario._to_yaml().unwrap();
+        let parsed = Scenario::_from_yaml(&yaml).unwrap();
 
         assert_eq!(scenario.name, parsed.name);
         assert_eq!(scenario.terminal.cols, parsed.terminal.cols);

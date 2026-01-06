@@ -8,46 +8,35 @@
 
 This document outlines the strategic feature roadmap for BTE (Behavioral Testing Engine), organized into tiers based on market impact and implementation priority.
 
-**Current Status**: v0.1.0 complete with core functionality
+**Current Status**: v0.2.0-rc1 complete with core functionality
 **Target Status**: v1.0.0 infrastructure-grade terminal testing
 
 ---
 
-## Tier 1 — Credibility Features ⭐ REQUIRED
+## Tier 1 — Credibility Features ✅ COMPLETE
 
-*These turn BTE from "interesting" into "usable in production"*
+*These turned BTE from "interesting" into "usable in production"*
 
-### 1️⃣ Deterministic Record & Replay (First-Class)
+### 1️⃣ Deterministic Record & Replay (First-Class) ✅ DONE
 
-**Status**: Partially implemented (basic replay exists)
-**Priority**: CRITICAL
-**Implementation**: v0.2.0
+**Status**: **COMPLETE** (v0.2.0)
+**Location**: `src/replay.rs`
 
-#### Current State
-- Basic checkpoint system exists
-- RNG state tracking exists
-- Missing: key timing, resize ordering, signal ordering
+- Full trace format v2.0.0 with event recording
+- Key timing, resize ordering, signal ordering
+- Screen checkpoints with hash verification
+- Partial replay from any checkpoint
+- Trace checksums with seahash
 
-#### Upgrade Requirements
+### 2️⃣ Exit Semantics & Crash Classification ✅ DONE
 
-```yaml
-# New trace format with full event recording
-trace:
-  version: "2.0.0"
-  events:
-    - type: key_press
-      tick: 42
-      key: "Enter"
-      raw_bytes: [0x0d]
-      logical_sequence: 5
-    
-    - type: resize
-      tick: 100
-      cols: 120
-      rows: 40
-      sigwinch_sent: true
-    
-    - type: signal
+**Status**: **COMPLETE** (v0.2.0)
+**Location**: `src/termination.rs`
+
+- 9 termination classifications (CleanExit, SignalExit, Panic, Deadlock, Timeout, InvariantViolation, ReplayDivergence, UserInterrupt, Unknown)
+- Performance metrics (ticks, memory, I/O)
+- CI-friendly `CISummary` format
+- Exit code mapping (-1 to -99)
       tick: 200
       signal: SIGINT
       source: "user"
@@ -114,57 +103,15 @@ trait TerminalBackend {
 
 ---
 
-### 3️⃣ Exit Semantics & Crash Classification
+### 3️⃣ Exit Semantics & Crash Classification ✅ DONE
 
-**Status**: Basic exit code tracking
-**Priority**: CRITICAL
-**Implementation**: v0.2.0
+**Status**: **COMPLETE** (v0.2.0)
+**Location**: `src/termination.rs`
 
-#### New Termination Schema
-
-```json
-{
-  "termination": {
-    "kind": "signal",
-    "signal": "SIGSEGV",
-    "signal_number": 11,
-    "during_step": 14,
-    "step_name": "wait_for_login_prompt",
-    "output_before": "login: ",
-    "invariant_violations": ["cursor_bounds"],
-    "memory_snapshot": {
-      "rss_kb": 1024,
-      "vm_size_kb": 5120
-    }
-  }
-}
-```
-
-#### Termination Kinds
-
-| Kind | Description | Exit Code |
-|------|-------------|-----------|
-| `clean_exit` | Normal exit with code | 0 + code |
-| `signal_exit` | Killed by signal | -signal |
-| `panic` | Unhandled panic | -99 |
-| `deadlock` | No progress detected | -98 |
-| `timeout` | Step timed out | -97 |
-| `invariant_violation` | Behavioral check failed | -96 |
-| `replay_divergence` | Trace mismatch | -95 |
-
-#### Implementation
-
-1. Extend `ExitReason` enum with detailed variants
-2. Add memory tracking (RSS, VMS)
-3. Capture output buffer at termination
-4. Classify crashes by signal/source
-5. Include in trace output
-
-#### Commercial Value
-
-- Systems software teams need this
-- Enables post-mortem analysis
-- Distinguishes "real bugs" from "test issues"
+- 9 termination classifications (CleanExit, SignalExit, Panic, Deadlock, Timeout, InvariantViolation, ReplayDivergence, UserInterrupt, Unknown)
+- Performance metrics (ticks, memory, I/O)
+- CI-friendly `CISummary` format
+- Exit code mapping (-1 to -99)
 
 ---
 
@@ -172,13 +119,18 @@ trait TerminalBackend {
 
 *These are features no existing tool does well*
 
-### 4️⃣ Behavioral Invariants as First-Class Language
+### 4️⃣ Behavioral Invariants as First-Class Language 🚧 IN PROGRESS
 
-**Status**: Hardcoded checks in Rust
-**Priority**: HIGH
-**Implementation**: v0.2.0-v0.3.0
+**Status**: **IN PROGRESS** (v0.2.0-rc1)
+**Location**: `src/invariants_v2.rs`
 
-#### New Invariant Schema
+- 16+ invariant types (cursor_bounds, screen_size, response_time, screen_stability, etc.)
+- Parameterized invariants with configurable thresholds
+- Regex-based content invariants
+- State tracking via Mutex for deterministic evaluation
+- Declarative YAML/JSON syntax
+
+#### Invariant Types Implemented
 
 ```yaml
 invariants:
@@ -237,110 +189,68 @@ invariants:
 
 ---
 
-### 5️⃣ Time-Aware Correctness
+### 5️⃣ Time-Aware Correctness ✅ DONE
 
-**Status**: Tick-based timing exists
-**Priority**: MEDIUM
-**Implementation**: v0.3.0
+**Status**: **COMPLETE** (v0.2.0-rc1)
+**Location**: `src/invariants_v2.rs`
 
-#### New Time-Aware Invariants
+#### Implemented Time-Aware Invariants
 
-```yaml
-invariants:
-  # Latency guarantees
-  - type: max_redraw_latency
-    max_ticks: 10
-    description: "Screen must redraw within 10 ticks"
-  
-  # Responsiveness
-  - type: input_response_time
-    max_ticks: 25
-    input_type: "key_press"
-  
-  # Progress guarantees
-  - type: monotonic_progress
-    metric: "screen_content_hash"
-    direction: "increasing"
-  
-  # Stability detection
-  - type: ui_stabilized
-    timeout_ticks: 100
-    stability_threshold: 5
-```
+| Invariant | Purpose |
+|-----------|---------|
+| `response_time` | Process must respond within max ticks |
+| `max_latency` | Screen redraw must complete within max latency |
+| `screen_stability` | Screen must stabilize for minimum ticks |
+| `input_response_time` | Measure time from input to screen change |
+| `max_redraw_latency` | Measure screen redraw latency after events |
+| `ui_stabilized` | UI must be stable before proceeding |
 
-#### Implementation
+#### Key Implementation Details
 
-1. Extend `TimingController` with latency tracking
-2. Add per-step performance metrics
-3. Implement stability detection algorithm
-4. Create performance regression detection
-5. Add visualization of timing profiles
-
-#### Why This Matters
-
-- TUIs often "work" but feel broken
-- Catches performance regressions before users complain
-- No mainstream CLI test tool does this
+- Mutex-based state tracking for deterministic evaluation
+- Multiple measurement points (FirstChange, StableState, CursorPosition)
+- Latency measurement methods (HashChange, ContentDiff, CursorMovement, AnyChange)
+- Configurable stability thresholds and timeouts
 
 ---
 
-### 6️⃣ Terminal Fuzzing (Structured)
+### 6️⃣ Terminal Fuzzing Engine ✅ DONE
 
-**Status**: Not implemented
-**Priority**: MEDIUM
-**Implementation**: v0.4.0
+**Status**: **COMPLETE** (v0.2.0-rc1)
+**Location**: `src/fuzzing.rs`
 
-#### Fuzzing Strategy
+#### Implemented Fuzzing Strategies
 
-Instead of random bytes → structured valid inputs:
+| Strategy | Description | Purpose |
+|----------|-------------|---------|
+| `key_sequence` | Valid key combinations with modifiers | Realistic input |
+| `resize_storm` | Rapid terminal resize events | Layout stress |
+| `signal_injection` | Randomized signal delivery | Race conditions |
+| `input_flood` | Burst input sequences | Timing bugs |
+
+#### Key Features
+
+- **Deterministic**: Every fuzz run has a seed for reproduction
+- **Structured**: Generates valid inputs, not random bytes
+- **Configurable**: Intensity levels (Low/Medium/High/Extreme)
+- **Composable**: Multiple strategies can be combined
+
+#### Example Usage
 
 ```yaml
-fuzzing:
-  mode: "structured"
+fuzz:
+  enabled: true
   seed: 12345
-  
-  key_fuzzing:
-    enabled: true
-    max_sequence_length: 100
-    include_ctrl: true
-    include_alt: true
-    include_function: true
-  
-  resize_fuzzing:
-    enabled: true
-    min_cols: 40
-    max_cols: 200
-    min_rows: 10
-    max_rows: 80
-    storm_mode: true
-  
-  signal_fuzzing:
-    enabled: true
-    signals: [SIGINT, SIGTERM, SIGWINCH]
-    inject_during_output: true
+  strategies:
+    - type: key_sequence
+      min_length: 5
+      max_length: 20
+      include_modifiers: true
+    - type: resize_storm
+      min_size: [40, 10]
+      max_size: [200, 60]
+      burst_count: 10
 ```
-
-#### Fuzzing Features
-
-| Feature | Description | Purpose |
-|---------|-------------|---------|
-| Valid key sequences | Generated from grammar | Realistic input |
-| Resize storms | Rapid size changes | Layout stress |
-| Signal injection | Random signals | Race conditions |
-| Timing variation | Random delays | Timing bugs |
-| Bounded execution | Max ticks limit | Termination guarantee |
-
-#### Reproduction Guarantee
-
-- Every fuzz run has deterministic seed
-- Reproduce any failure with seed
-- Extract minimal reproduction scenario
-
-#### Commercial Value
-
-- Moves from "test tool" to "bug discovery engine"
-- Finds redraw bugs, deadlocks, race conditions
-- Automated regression finding
 
 ---
 
@@ -348,50 +258,68 @@ fuzzing:
 
 *Future-proofing for 2026+*
 
-### 7️⃣ AI-Consumable Failure Explanations
+### 7️⃣ AI-Consumable Failure Explanations ✅ DONE
 
-**Status**: Basic JSON output
-**Priority**: MEDIUM
-**Implementation**: v0.3.0
+**Status**: **COMPLETE** (v0.2.0-rc1)
+**Location**: `src/explain.rs`
 
-#### New Failure Output Format
+#### Implemented Features
+
+| Feature | Description |
+|---------|-------------|
+| Violation Classification | 20+ violation types with severity/category |
+| Causal Chain | Event sequence leading to failure |
+| Minimal Reproduction | Scenario name, seed, step count, duration |
+| Suggested Fixes | AI-generated fix suggestions with confidence |
+| Related Issues | Similar historical issues with similarity scores |
+
+#### Example Output
 
 ```json
 {
-  "violation": {
-    "type": "cursor_out_of_bounds",
-    "severity": "high",
-    "category": "structural"
-  },
-  "causal_chain": [
-    {
-      "event": "resize",
-      "tick": 42,
-      "params": {"cols": 40, "rows": 12},
-      "consequence": "viewport shrank"
+  "version": "1.0",
+  "timestamp": "2024-01-06T10:30:00Z",
+  "scenario": "resize_test",
+  "exit_code": -2,
+  "outcome": "InvariantViolation",
+  "failures": [{
+    "violation": {
+      "type": "cursor_bounds",
+      "severity": "critical",
+      "category": "structural",
+      "description": "Cursor position must always be within screen bounds",
+      "step": 3,
+      "tick": 150
     },
-    {
-      "event": "app_redraw",
-      "tick": 43,
-      "consequence": "app placed cursor at old position"
+    "causal_chain": [
+      {"event_type": "invariant_check", "tick": 150, "consequence": "Invariant 'cursor_bounds' check failed"},
+      {"event_type": "violation_details", "tick": 150, "consequence": "Violation: Cursor at (80, 24) but screen is 40x12"}
+    ],
+    "minimal_repro": {
+      "scenario_name": "resize_test",
+      "step_count": 5,
+      "seed": 12345,
+      "duration_ticks": 200
     },
-    {
-      "event": "invariant_check",
-      "tick": 44,
-      "violation": "cursor at (80, 24) but viewport is (40, 12)"
-    }
-  ],
-  "minimal_repro": {
-    "scenario": "resize_then_redraw",
-    "steps": 3,
-    "seed": 12345
-  },
-  "suggested_fix": "Add bounds check after resize before redraw",
-  "related_issues": ["#42", "#87"]
+    "suggested_fixes": [
+      {"description": "Add cursor position bounds check after any terminal resize", "confidence": 0.85}
+    ],
+    "related_issues": [
+      {"id": "#42", "similarity": 0.85},
+      {"id": "#87", "similarity": 0.72}
+    ]
+  }],
+  "summary": {
+    "total_failures": 1,
+    "critical_count": 1,
+    "high_count": 0,
+    "categories": [["Structural", 1]],
+    "top_violation_types": [["CursorBounds", 1]]
+  }
 }
 ```
 
-#### AI Output Design Principles
+#### Design Principles
 
 1. **Normalized types** → AI can categorize
 2. **Causal chains** → AI can reason about cause
@@ -455,99 +383,100 @@ reduction_ratio: "94%"
 
 *Non-technical but critical*
 
-### 🔟 CI-First UX
+### 🔟 CI-First UX ✅ DONE
 
-**Status**: Basic
-**Priority**: HIGH
-**Implementation**: v0.2.0
+**Status**: **COMPLETE** (v0.2.0-rc1)
+**Location**: `src/ci.rs`
 
-#### GitHub Actions Template
+#### Implemented Features
 
-```yaml
-name: Terminal Tests
+| Feature | Description |
+|---------|-------------|
+| Batch Result Aggregation | Combine multiple scenario results |
+| Machine-Readable Summaries | JSON format with pass/fail counts |
+| GitHub Actions Template | Pre-built CI workflow |
+| Exit Code Mapping | CI-friendly exit codes (-1 to -99) |
+| Failure Artifacts | Automatic trace file management |
 
-on: [push, pull_request]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - name: Build BTE
-        run: cargo build --release
-      
-      - name: Run Scenarios
-        run: |
-          for scenario in scenarios/*.yaml; do
-            ./target/release/bte run "$scenario" \
-              --output "test-results/$(basename $scenario).json"
-          done
-      
-      - name: Upload Results
-        uses: actions/upload-artifact@v4
-        with:
-          name: bte-results
-          path: test-results/
-      
-      - name: Check Failures
-        run: |
-          failed=$(find test-results -name "*.json" -exec grep -l '"exit_code": -[0-9]*' {} \; | wc -l)
-          if [ $failed -gt 0 ]; then
-            echo "::$warning title=Failures Detected::$failed scenarios failed"
-            exit 1
-          fi
-```
-
-#### Machine-Readable Summaries
+#### Example Summary Output
 
 ```json
 {
-  "summary": {
-    "total": 15,
-    "passed": 14,
-    "failed": 1,
-    "skipped": 0,
-    "success_rate": "93.3%"
-  },
-  "failures": [
-    {
-      "scenario": "interactive/vim-complex.yaml",
-      "violation": "cursor_out_of_bounds",
-      "repro_seed": 12345
-    }
-  ],
-  "artifacts": "test-results/"
+  "version": "1.0",
+  "timestamp": "2024-01-06T10:30:00Z",
+  "total_scenarios": 15,
+  "passed": 14,
+  "failed": 1,
+  "success_rate": "93.3%",
+  "failures": [{
+    "scenario": "interactive/vim-complex.yaml",
+    "violation_type": "cursor_bounds",
+    "severity": "critical",
+    "exit_code": -2,
+    "repro_seed": 12345
+  }],
+  "artifacts_dir": "test-results/"
 }
 ```
 
+#### Exit Code Mapping
+
+| Exit Code | Meaning |
+|-----------|---------|
+| 0 | Success |
+| -1 | Signal exit |
+| -2 | Invariant violation |
+| -3 | Timeout |
+| -4 | Error |
+| -5 | Replay divergence |
+| -99 | Panic |
+
+#### GitHub Actions Integration
+
+The module generates ready-to-use GitHub Actions workflows with:
+- Artifact upload
+- Failure detection
+- Warning annotations
+
 ---
 
-### 1️⃣1️⃣ Opinionated Defaults
+### 1️⃣1️⃣ Opinionated Defaults ✅ DONE
 
-**Status**: Minimal defaults
-**Priority**: MEDIUM
-**Implementation**: v0.2.0
+**Status**: **COMPLETE** (v0.2.0-rc1)
+**Location**: `src/defaults.rs`
 
-#### Shipped Defaults
+#### Implemented Defaults
 
-```yaml
-# bte defaults (implicit, can be overridden)
+| Category | Default | Value |
+|----------|---------|-------|
+| Terminal | cols/rows | 80x24 |
+| Timing | tick_nanos | 10_000_000 (10ms) |
+| Timing | max_default_ticks | 10_000 |
+| Invariants | cursor_bounds | true |
+| Invariants | no_deadlock | true (1000 tick timeout) |
+| Invariants | no_output_after_exit | true |
+| Retry | max_attempts | 3 |
+| Output | max_size | 1MB |
 
-terminal:
-  cols: 80    # Standard terminal width
-  rows: 24    # Standard terminal height
-  encoding: UTF-8
+#### Smart Configuration
 
-timing:
-  tick_nanos: 10_000_000  # 10ms logical tick
-  max_default_ticks: 10000  # 100s max per scenario
+- **Auto-sizes terminal** (40-200 cols, 10-100 rows)
+- **Command-aware invariants** (editors get screen_stability, builders get process_terminated_cleanly)
+- **Estimated timeouts** (vim: 5s, cargo test: 30s, simple: 500ms)
+- **Scenario templates** (interactive, headless, resize_test, performance)
 
-invariants:
-  - cursor_in_bounds    # Always check
-  - no_deadlock         # Always check (1000 tick timeout)
+#### Example
+
+```rust
+let scenario = DefaultConfigurator::build_scenario_with_defaults(
+    "my_test",
+    "cargo build",
+    vec![],
+);
+// Automatically sets:
+// - Terminal: 80x24
+// - Invariants: no_deadlock, process_terminated_cleanly, no_output_after_exit
+// - Timeout: 30000ms (for cargo build)
 ```
 
 ---

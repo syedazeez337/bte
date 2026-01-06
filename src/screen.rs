@@ -3,6 +3,8 @@
 //! This module provides a 2D grid model for terminal memory,
 //! with scrollback buffer and cursor tracking.
 
+#![allow(dead_code)]
+
 use crate::ansi::{AnsiEvent, AnsiParser, CsiSequence, EscSequence};
 use std::hash::{Hash, Hasher};
 
@@ -389,7 +391,7 @@ impl Screen {
                 self.cursor.col = next_tab.min(self.cols.saturating_sub(1));
             }
             // LF, VT, FF - Line Feed (and variants)
-            0x0a | 0x0b | 0x0c => {
+            0x0a..=0x0c => {
                 self.cursor.row += 1;
                 if self.cursor.row > self.scroll_region.1 {
                     self.scroll_up(1);

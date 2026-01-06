@@ -3,6 +3,8 @@
 //! This module provides an epoll-based IO loop that handles
 //! reading and writing to the PTY without deadlocks.
 
+#![allow(dead_code)]
+
 use crate::process::{ProcessError, PtyProcess};
 use crate::pty::PtyError;
 use nix::poll::{poll, PollFd, PollFlags, PollTimeout};

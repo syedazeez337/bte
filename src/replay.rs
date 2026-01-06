@@ -6,13 +6,13 @@
 //! - Logical timestamps (no wall-clock dependency)
 //! - Replay verification with divergence detection
 
-use crate::determinism::{DeterministicScheduler, SeededRng};
-use crate::invariants::{InvariantContext, InvariantEngine, InvariantResult};
-use crate::process::{ExitReason, PtyProcess};
-use crate::scenario::{Scenario, Step};
+#![allow(dead_code)]
+
+use crate::determinism::SeededRng;
+use crate::invariants::InvariantResult;
+use crate::scenario::Scenario;
 use crate::screen::Screen;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::Path;
 
 /// Trace format version 2.0.0
@@ -350,12 +350,12 @@ impl TraceBuilder {
     }
 
     /// Serialize to JSON
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+    pub fn _to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(&self.trace)
     }
 
     /// Serialize to YAML
-    pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
+    pub fn _to_yaml(&self) -> Result<String, serde_yaml::Error> {
         serde_yaml::to_string(&self.trace)
     }
 }
@@ -552,8 +552,7 @@ pub fn load_trace(path: &Path) -> Result<ReplayTrace, std::io::Error> {
 
 /// Save trace to file
 pub fn save_trace(trace: &ReplayTrace, path: &Path) -> Result<(), std::io::Error> {
-    let json = serde_json::to_string_pretty(trace)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let json = serde_json::to_string_pretty(trace).map_err(std::io::Error::other)?;
     std::fs::write(path, json)?;
     Ok(())
 }

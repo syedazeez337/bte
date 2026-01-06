@@ -5,6 +5,8 @@
 //! - Seeded RNG wrapper for reproducible randomness
 //! - Explicit scheduling boundaries
 
+#![allow(dead_code)]
+
 use std::cell::Cell;
 
 /// A monotonic clock that advances deterministically.
@@ -109,6 +111,19 @@ impl SeededRng {
     pub fn next_bool(&mut self, probability: f64) -> bool {
         let threshold = (probability * u64::MAX as f64) as u64;
         self.next_u64() < threshold
+    }
+
+    /// Generate a usize in the range [0, max).
+    pub fn usize(&mut self, max: usize) -> usize {
+        (self.next_u64() % max as u64) as usize
+    }
+
+    /// Generate a usize in the range [min, max).
+    pub fn usize_range(&mut self, min: usize, max: usize) -> usize {
+        if max <= min {
+            return min;
+        }
+        min + self.usize(max - min)
     }
 
     /// Get the current seed/state for replay purposes.

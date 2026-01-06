@@ -8,7 +8,7 @@ use crate::screen::Screen;
 use serde::{Deserialize, Serialize};
 
 /// Result of an invariant evaluation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct InvariantResult {
     /// Name of the invariant
     pub name: String,
@@ -53,13 +53,13 @@ pub struct InvariantContext<'a> {
     /// The screen state
     pub screen: Option<&'a Screen>,
     /// The process (may have exited)
-    pub process: &'a PtyProcess,
+    pub process: &'a mut PtyProcess,
     /// Current execution step
     pub step: usize,
     /// Current tick
     pub tick: u64,
     /// Whether we're in replay mode
-    pub is_replay: bool,
+    pub _is_replay: bool,
     /// Last screen hash (for change detection)
     pub last_screen_hash: Option<u64>,
     /// Number of consecutive ticks with no output
@@ -75,7 +75,7 @@ pub trait Invariant: Send + Sync {
     /// Get a description of what this invariant checks
     fn description(&self) -> &str;
     /// Evaluate the invariant with the given context
-    fn evaluate(&self, ctx: &InvariantContext) -> InvariantResult;
+    fn evaluate(&self, ctx: &mut InvariantContext) -> InvariantResult;
 }
 
 /// Built-in invariant types
@@ -120,6 +120,38 @@ pub enum BuiltInInvariant {
         #[serde(default = "default_stable_ticks")]
         min_ticks: u64,
     },
+    /// No output after process exit
+    #[serde(rename = "no_output_after_exit")]
+    NoOutputAfterExit,
+    /// Process terminated cleanly (exit code or expected signal)
+    #[serde(rename = "process_terminated_cleanly")]
+    ProcessTerminatedCleanly {
+        /// Signals that are considered clean termination
+        #[serde(default)]
+        allowed_signals: Vec<i32>,
+    },
+    /// Screen stability check (same as ScreenStable)
+    #[serde(rename = "screen_stability")]
+    ScreenStability {
+        /// Minimum ticks to wait before considering stable
+        #[serde(default = "default_stable_ticks")]
+        min_ticks: u64,
+    },
+    /// Viewport is valid (cursor in bounds, no scroll issues)
+    #[serde(rename = "viewport_valid")]
+    ViewportValid,
+    /// Response time constraint
+    #[serde(rename = "response_time")]
+    ResponseTime {
+        /// Maximum ticks for response
+        max_ticks: u64,
+    },
+    /// Maximum latency constraint
+    #[serde(rename = "max_latency")]
+    MaxLatency {
+        /// Maximum ticks for latency
+        max_ticks: u64,
+    },
 }
 
 fn default_deadlock_timeout() -> u64 {
@@ -151,6 +183,20 @@ impl BuiltInInvariant {
             BuiltInInvariant::ScreenStable { min_ticks } => {
                 Box::new(ScreenStableInvariant::new(*min_ticks))
             }
+            BuiltInInvariant::NoOutputAfterExit => Box::new(NoOutputAfterExitInvariant),
+            BuiltInInvariant::ProcessTerminatedCleanly { allowed_signals } => Box::new(
+                ProcessTerminatedCleanlyInvariant::new(allowed_signals.clone()),
+            ),
+            BuiltInInvariant::ScreenStability { min_ticks } => {
+                Box::new(ScreenStableInvariant::new(*min_ticks))
+            }
+            BuiltInInvariant::ViewportValid => Box::new(ViewportValidInvariant),
+            BuiltInInvariant::ResponseTime { max_ticks } => {
+                Box::new(ResponseTimeInvariant::new(*max_ticks))
+            }
+            BuiltInInvariant::MaxLatency { max_ticks } => {
+                Box::new(MaxLatencyInvariant::new(*max_ticks))
+            }
         }
     }
 }
@@ -167,7 +213,7 @@ impl Invariant for CursorBoundsInvariant {
         "Cursor position must always be within screen bounds"
     }
 
-    fn evaluate(&self, ctx: &InvariantContext) -> InvariantResult {
+    fn evaluate(&self, ctx: &mut InvariantContext) -> InvariantResult {
         if let Some(screen) = ctx.screen {
             let cursor = screen.cursor();
             let (cols, rows) = screen.size();
@@ -222,7 +268,7 @@ impl Invariant for NoDeadlockInvariant {
         "Process must produce output within timeout"
     }
 
-    fn evaluate(&self, ctx: &InvariantContext) -> InvariantResult {
+    fn evaluate(&self, ctx: &mut InvariantContext) -> InvariantResult {
         let is_stuck = ctx.no_output_ticks >= self.timeout_ticks;
 
         // Also check if process has exited normally
@@ -268,7 +314,7 @@ impl Invariant for SignalHandledInvariant {
         "Process must respond appropriately to signals"
     }
 
-    fn evaluate(&self, ctx: &InvariantContext) -> InvariantResult {
+    fn evaluate(&self, ctx: &mut InvariantContext) -> InvariantResult {
         let expected = ctx
             .expected_signal
             .as_ref()
@@ -276,15 +322,12 @@ impl Invariant for SignalHandledInvariant {
         if let Some(exit_reason) = ctx.process.exit_reason() {
             let signal_name = match exit_reason {
                 ExitReason::Exited(_) => "exited",
-                ExitReason::Signaled(sig) => {
-                    let name = match sig {
-                        2 => "SIGINT",
-                        9 => "SIGKILL",
-                        15 => "SIGTERM",
-                        _ => "other",
-                    };
-                    name
-                }
+                ExitReason::Signaled(sig) => match sig {
+                    2 => "SIGINT",
+                    9 => "SIGKILL",
+                    15 => "SIGTERM",
+                    _ => "other",
+                },
                 ExitReason::Running => "running",
             };
 
@@ -355,7 +398,7 @@ impl Invariant for ScreenContainsInvariant {
         }
     }
 
-    fn evaluate(&self, ctx: &InvariantContext) -> InvariantResult {
+    fn evaluate(&self, ctx: &mut InvariantContext) -> InvariantResult {
         let screen_text = ctx.screen.map(|s| s.text()).unwrap_or_default();
         let contains = screen_text.contains(&self.pattern);
 
@@ -393,7 +436,7 @@ impl Invariant for ScreenChangedInvariant {
         "Screen must have changed since last check"
     }
 
-    fn evaluate(&self, ctx: &InvariantContext) -> InvariantResult {
+    fn evaluate(&self, ctx: &mut InvariantContext) -> InvariantResult {
         let current_hash = ctx.screen.map(|s| s.state_hash());
         let changed = current_hash != ctx.last_screen_hash;
 
@@ -431,7 +474,7 @@ impl Invariant for ScreenStableInvariant {
         "Screen should remain stable for minimum ticks"
     }
 
-    fn evaluate(&self, ctx: &InvariantContext) -> InvariantResult {
+    fn evaluate(&self, ctx: &mut InvariantContext) -> InvariantResult {
         let current_hash = ctx.screen.map(|s| s.state_hash());
         let stable = current_hash == ctx.last_screen_hash && ctx.no_output_ticks >= self.min_ticks;
 
@@ -443,6 +486,210 @@ impl Invariant for ScreenStableInvariant {
                 "Stable: {}, Consecutive no-change ticks: {} (min: {})",
                 stable, ctx.no_output_ticks, self.min_ticks
             )),
+            ctx.step,
+            ctx.tick,
+        )
+    }
+}
+
+pub struct NoOutputAfterExitInvariant;
+
+impl Invariant for NoOutputAfterExitInvariant {
+    fn name(&self) -> &str {
+        "no_output_after_exit"
+    }
+
+    fn description(&self) -> &str {
+        "No output should be produced after process exit"
+    }
+
+    fn evaluate(&self, ctx: &mut InvariantContext) -> InvariantResult {
+        let exit_status = ctx.process.try_wait();
+        let has_exited = match exit_status {
+            Ok(Some(ExitReason::Running)) => false,
+            Ok(Some(_)) => true,
+            Ok(None) => false,
+            Err(_) => false,
+        };
+        let satisfied = if has_exited {
+            ctx.no_output_ticks >= 1
+        } else {
+            true
+        };
+
+        InvariantResult::new(
+            self.name(),
+            satisfied,
+            self.description(),
+            if !satisfied {
+                Some("Process exited but output was detected".to_string())
+            } else {
+                None
+            },
+            ctx.step,
+            ctx.tick,
+        )
+    }
+}
+
+pub struct ProcessTerminatedCleanlyInvariant {
+    allowed_signals: Vec<i32>,
+}
+
+impl ProcessTerminatedCleanlyInvariant {
+    pub fn new(allowed_signals: Vec<i32>) -> Self {
+        Self { allowed_signals }
+    }
+}
+
+impl Invariant for ProcessTerminatedCleanlyInvariant {
+    fn name(&self) -> &str {
+        "process_terminated_cleanly"
+    }
+
+    fn description(&self) -> &str {
+        "Process should terminate with clean exit code or allowed signal"
+    }
+
+    fn evaluate(&self, ctx: &mut InvariantContext) -> InvariantResult {
+        let exit_status = ctx.process.try_wait();
+        let satisfied = match exit_status {
+            Ok(Some(exit_reason)) => match exit_reason {
+                ExitReason::Exited(code) => code >= 0,
+                ExitReason::Signaled(sig) => self.allowed_signals.contains(&sig),
+                ExitReason::Running => true,
+            },
+            Ok(None) => true,
+            Err(_) => true,
+        };
+
+        InvariantResult::new(
+            self.name(),
+            satisfied,
+            self.description(),
+            match exit_status {
+                Ok(Some(exit_reason)) => match exit_reason {
+                    ExitReason::Exited(code) if code < 0 => {
+                        Some(format!("Process exited with error code {}", code))
+                    }
+                    ExitReason::Signaled(sig) if !self.allowed_signals.contains(&sig) => {
+                        Some(format!("Process killed by signal {}", sig))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            },
+            ctx.step,
+            ctx.tick,
+        )
+    }
+}
+
+pub struct ViewportValidInvariant;
+
+impl Invariant for ViewportValidInvariant {
+    fn name(&self) -> &str {
+        "viewport_valid"
+    }
+
+    fn description(&self) -> &str {
+        "Viewport should be valid (cursor in bounds, no scroll issues)"
+    }
+
+    fn evaluate(&self, ctx: &mut InvariantContext) -> InvariantResult {
+        let valid = if let Some(screen) = ctx.screen {
+            let cursor = screen.cursor();
+            let (cols, rows) = screen.size();
+            cursor.col < cols && cursor.row < rows
+        } else {
+            true
+        };
+
+        InvariantResult::new(
+            self.name(),
+            valid,
+            self.description(),
+            None,
+            ctx.step,
+            ctx.tick,
+        )
+    }
+}
+
+pub struct ResponseTimeInvariant {
+    max_ticks: u64,
+}
+
+impl ResponseTimeInvariant {
+    pub fn new(max_ticks: u64) -> Self {
+        Self { max_ticks }
+    }
+}
+
+impl Invariant for ResponseTimeInvariant {
+    fn name(&self) -> &str {
+        "response_time"
+    }
+
+    fn description(&self) -> &str {
+        "Process should respond within expected time"
+    }
+
+    fn evaluate(&self, ctx: &mut InvariantContext) -> InvariantResult {
+        let satisfied = ctx.tick <= self.max_ticks;
+
+        InvariantResult::new(
+            self.name(),
+            satisfied,
+            self.description(),
+            if !satisfied {
+                Some(format!(
+                    "Tick {} exceeds max allowed {}",
+                    ctx.tick, self.max_ticks
+                ))
+            } else {
+                None
+            },
+            ctx.step,
+            ctx.tick,
+        )
+    }
+}
+
+pub struct MaxLatencyInvariant {
+    max_ticks: u64,
+}
+
+impl MaxLatencyInvariant {
+    pub fn new(max_ticks: u64) -> Self {
+        Self { max_ticks }
+    }
+}
+
+impl Invariant for MaxLatencyInvariant {
+    fn name(&self) -> &str {
+        "max_latency"
+    }
+
+    fn description(&self) -> &str {
+        "Maximum latency should not exceed threshold"
+    }
+
+    fn evaluate(&self, ctx: &mut InvariantContext) -> InvariantResult {
+        let satisfied = ctx.tick <= self.max_ticks;
+
+        InvariantResult::new(
+            self.name(),
+            satisfied,
+            self.description(),
+            if !satisfied {
+                Some(format!(
+                    "Latency {} ticks exceeds max {}",
+                    ctx.tick, self.max_ticks
+                ))
+            } else {
+                None
+            },
             ctx.step,
             ctx.tick,
         )
@@ -477,7 +724,7 @@ impl InvariantEngine {
     }
 
     /// Evaluate all invariants
-    pub fn evaluate(&mut self, ctx: &InvariantContext) -> &[InvariantResult] {
+    pub fn evaluate(&mut self, ctx: &mut InvariantContext) -> &[InvariantResult] {
         self.results.clear();
         for invariant in &self.invariants {
             let result = invariant.evaluate(ctx);
@@ -497,12 +744,12 @@ impl InvariantEngine {
     }
 
     /// Get all results
-    pub fn results(&self) -> &[InvariantResult] {
+    pub fn _results(&self) -> &[InvariantResult] {
         &self.results
     }
 
     /// Clear all results
-    pub fn clear(&mut self) {
+    pub fn _clear(&mut self) {
         self.results.clear();
     }
 }
@@ -522,14 +769,14 @@ mod tests {
         use crate::process::ProcessConfig;
 
         let config = ProcessConfig::shell("sleep 1");
-        let process = PtyProcess::spawn(&config).unwrap();
+        let mut process = PtyProcess::spawn(&config).unwrap();
 
         InvariantContext {
             screen: Some(screen),
-            process: Box::leak(Box::new(process)),
+            process: &mut *Box::leak(Box::new(process)),
             step,
             tick,
-            is_replay: false,
+            _is_replay: false,
             last_screen_hash: None,
             no_output_ticks: 0,
             expected_signal: None,
@@ -539,9 +786,9 @@ mod tests {
     #[test]
     fn cursor_bounds_within_screen() {
         let screen = Screen::new(80, 24);
-        let ctx = create_test_context(&screen, 0, 0);
+        let mut ctx = create_test_context(&screen, 0, 0);
 
-        let result = CursorBoundsInvariant.evaluate(&ctx);
+        let result = CursorBoundsInvariant.evaluate(&mut ctx);
         assert!(result.satisfied);
         assert_eq!(result.name, "cursor_bounds");
     }
@@ -561,8 +808,8 @@ mod tests {
         assert!(cursor.row < 5, "Cursor row {} should be < 5", cursor.row);
 
         // The invariant should be satisfied because the screen prevents out-of-bounds
-        let ctx = create_test_context(&screen, 0, 0);
-        let result = CursorBoundsInvariant.evaluate(&ctx);
+        let mut ctx = create_test_context(&screen, 0, 0);
+        let result = CursorBoundsInvariant.evaluate(&mut ctx);
         assert!(
             result.satisfied,
             "Invariant should be satisfied as screen clamps cursor"
@@ -574,9 +821,9 @@ mod tests {
         let mut screen = Screen::new(80, 24);
         screen.process(b"Hello World");
         let inv = ScreenContainsInvariant::new("Hello".to_string(), true);
-        let ctx = create_test_context(&screen, 0, 0);
+        let mut ctx = create_test_context(&screen, 0, 0);
 
-        let result = inv.evaluate(&ctx);
+        let result = inv.evaluate(&mut ctx);
         assert!(result.satisfied);
     }
 
@@ -585,9 +832,9 @@ mod tests {
         let mut screen = Screen::new(80, 24);
         screen.process(b"Hello World");
         let inv = ScreenContainsInvariant::new("Goodbye".to_string(), true);
-        let ctx = create_test_context(&screen, 0, 0);
+        let mut ctx = create_test_context(&screen, 0, 0);
 
-        let result = inv.evaluate(&ctx);
+        let result = inv.evaluate(&mut ctx);
         assert!(!result.satisfied);
     }
 
@@ -596,9 +843,9 @@ mod tests {
         let mut screen = Screen::new(80, 24);
         screen.process(b"Hello World");
         let inv = ScreenContainsInvariant::new("Goodbye".to_string(), false);
-        let ctx = create_test_context(&screen, 0, 0);
+        let mut ctx = create_test_context(&screen, 0, 0);
 
-        let result = inv.evaluate(&ctx);
+        let result = inv.evaluate(&mut ctx);
         assert!(result.satisfied);
     }
 
@@ -607,9 +854,9 @@ mod tests {
         let mut screen = Screen::new(80, 24);
         screen.process(b"Hello World");
         let inv = ScreenContainsInvariant::new("Hello".to_string(), false);
-        let ctx = create_test_context(&screen, 0, 0);
+        let mut ctx = create_test_context(&screen, 0, 0);
 
-        let result = inv.evaluate(&ctx);
+        let result = inv.evaluate(&mut ctx);
         assert!(!result.satisfied);
     }
 
@@ -622,20 +869,20 @@ mod tests {
         let screen = Screen::new(80, 24);
         use crate::process::ProcessConfig;
         let config = ProcessConfig::shell("sleep 1");
-        let process = PtyProcess::spawn(&config).unwrap();
+        let mut process = PtyProcess::spawn(&config).unwrap();
 
-        let ctx = InvariantContext {
+        let mut ctx = InvariantContext {
             screen: Some(&screen),
-            process: &process,
+            process: &mut process,
             step: 0,
             tick: 0,
-            is_replay: false,
+            _is_replay: false,
             last_screen_hash: None,
             no_output_ticks: 0,
             expected_signal: None,
         };
 
-        let results = engine.evaluate(&ctx);
+        let results = engine.evaluate(&mut ctx);
         assert_eq!(results.len(), 2);
         assert!(engine.all_satisfied());
         assert!(engine.violations().is_empty());
@@ -649,20 +896,20 @@ mod tests {
         let inv = NoDeadlockInvariant::new(100);
         use crate::process::ProcessConfig;
         let config = ProcessConfig::shell("sleep 1");
-        let process = PtyProcess::spawn(&config).unwrap();
+        let mut process = PtyProcess::spawn(&config).unwrap();
 
-        let ctx = InvariantContext {
+        let mut ctx = InvariantContext {
             screen: Some(&screen),
-            process: &process,
+            process: &mut process,
             step: 0,
             tick: 0,
-            is_replay: false,
+            _is_replay: false,
             last_screen_hash: None,
             no_output_ticks: 0,
             expected_signal: None,
         };
 
-        let result = inv.evaluate(&ctx);
+        let result = inv.evaluate(&mut ctx);
         assert!(result.satisfied);
     }
 
@@ -671,20 +918,20 @@ mod tests {
         let inv = NoDeadlockInvariant::new(50);
         use crate::process::ProcessConfig;
         let config = ProcessConfig::shell("sleep 60");
-        let process = PtyProcess::spawn(&config).unwrap();
+        let mut process = PtyProcess::spawn(&config).unwrap();
 
-        let ctx = InvariantContext {
+        let mut ctx = InvariantContext {
             screen: None,
-            process: &process,
+            process: &mut process,
             step: 0,
             tick: 100,
-            is_replay: false,
+            _is_replay: false,
             last_screen_hash: None,
             no_output_ticks: 100, // More than timeout
             expected_signal: None,
         };
 
-        let result = inv.evaluate(&ctx);
+        let result = inv.evaluate(&mut ctx);
         assert!(!result.satisfied);
     }
 }

@@ -3,8 +3,10 @@
 //! This module provides the execution engine for running scenarios
 //! and generating traces.
 
+#![allow(dead_code)]
+
 use crate::determinism::DeterministicScheduler;
-use crate::invariants::{BuiltInInvariant, InvariantEngine, InvariantResult};
+use crate::invariants::{BuiltInInvariant, InvariantEngine};
 use crate::io_loop::IoLoop;
 use crate::keys::KeyInjector;
 use crate::process::{ProcessConfig, PtyProcess};
@@ -116,6 +118,30 @@ pub fn run_scenario(scenario: &Scenario, config: &RunnerConfig) -> RunResult {
                         pattern: pattern.clone(),
                     }
                 }
+                crate::scenario::InvariantRef::NoOutputAfterExit => {
+                    BuiltInInvariant::NoOutputAfterExit
+                }
+                crate::scenario::InvariantRef::ProcessTerminatedCleanly { allowed_signals } => {
+                    BuiltInInvariant::ProcessTerminatedCleanly {
+                        allowed_signals: allowed_signals.clone(),
+                    }
+                }
+                crate::scenario::InvariantRef::ScreenStability { min_ticks } => {
+                    BuiltInInvariant::ScreenStability {
+                        min_ticks: *min_ticks,
+                    }
+                }
+                crate::scenario::InvariantRef::ViewportValid => BuiltInInvariant::ViewportValid,
+                crate::scenario::InvariantRef::ResponseTime { max_ticks } => {
+                    BuiltInInvariant::ResponseTime {
+                        max_ticks: *max_ticks,
+                    }
+                }
+                crate::scenario::InvariantRef::MaxLatency { max_ticks } => {
+                    BuiltInInvariant::MaxLatency {
+                        max_ticks: *max_ticks,
+                    }
+                }
                 crate::scenario::InvariantRef::Custom { name: _ } => {
                     BuiltInInvariant::NoDeadlock { timeout_ticks: 100 }
                 }
@@ -141,18 +167,18 @@ pub fn run_scenario(scenario: &Scenario, config: &RunnerConfig) -> RunResult {
             break;
         }
 
-        let ctx = crate::invariants::InvariantContext {
+        let mut ctx = crate::invariants::InvariantContext {
             screen: Some(&screen),
-            process: &process,
+            process: &mut process,
             step: step_index,
             tick: scheduler.now(),
-            is_replay: false,
+            _is_replay: false,
             last_screen_hash,
             no_output_ticks,
             expected_signal: None,
         };
 
-        let results = invariant_engine.evaluate(&ctx);
+        let results = invariant_engine.evaluate(&mut ctx);
         for result in results {
             trace_builder.record_invariant_result(result);
             if result.violation() {
@@ -209,17 +235,17 @@ pub fn run_scenario(scenario: &Scenario, config: &RunnerConfig) -> RunResult {
         }
     }
 
-    let ctx = crate::invariants::InvariantContext {
+    let mut ctx = crate::invariants::InvariantContext {
         screen: Some(&screen),
-        process: &process,
+        process: &mut process,
         step: step_index,
         tick: scheduler.now(),
-        is_replay: false,
+        _is_replay: false,
         last_screen_hash,
         no_output_ticks,
         expected_signal: None,
     };
-    let results = invariant_engine.evaluate(&ctx);
+    let results = invariant_engine.evaluate(&mut ctx);
     for result in results {
         trace_builder.record_invariant_result(result);
     }

@@ -3,13 +3,13 @@
 //! This module provides the trace schema, serialization logic, and replay capabilities
 //! for deterministic reproduction of test runs.
 
+#![allow(dead_code)]
+
 use crate::determinism::DeterministicScheduler;
-use crate::invariants::{BuiltInInvariant, InvariantResult};
-use crate::process::{ExitReason, PtyProcess};
+use crate::invariants::InvariantResult;
 use crate::scenario::{Scenario, Step};
 use crate::screen::Screen;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::Path;
@@ -274,12 +274,12 @@ impl TraceBuilder {
     }
 
     /// Serialize trace to JSON
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+    pub fn _to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(&self.trace)
     }
 
     /// Serialize trace to YAML
-    pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
+    pub fn _to_yaml(&self) -> Result<String, serde_yaml::Error> {
         serde_yaml::to_string(&self.trace)
     }
 }
@@ -509,8 +509,7 @@ pub fn load_trace(path: &Path) -> Result<Trace, io::Error> {
 /// Save a trace to a file
 pub fn save_trace(trace: &Trace, path: &Path) -> Result<(), io::Error> {
     let mut file = File::create(path)?;
-    let json =
-        serde_json::to_string_pretty(trace).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let json = serde_json::to_string_pretty(trace).map_err(io::Error::other)?;
     file.write_all(json.as_bytes())?;
     Ok(())
 }

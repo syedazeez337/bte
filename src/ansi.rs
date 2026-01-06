@@ -3,6 +3,8 @@
 //! This module provides an incremental parser for ANSI escape sequences,
 //! converting byte streams into terminal events.
 
+#![allow(dead_code)]
+
 /// Events produced by the ANSI parser
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnsiEvent {

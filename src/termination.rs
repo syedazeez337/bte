@@ -3,6 +3,8 @@
 //! This module provides detailed termination classification for BTE test runs.
 //! Instead of just exit codes, we classify the full termination semantics.
 
+#![allow(dead_code)]
+
 use crate::process::{ExitReason, PtyProcess};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -283,7 +285,7 @@ impl Terminator {
             .collect();
 
         TerminationReport {
-            id: format!("term_{}", uuid::Uuid::new_v4().to_string()[..8].to_string()),
+            id: format!("term_{}", &uuid::Uuid::new_v4().to_string()[..8]),
             classification,
             exit_info,
             metrics,
@@ -312,7 +314,7 @@ impl Terminator {
                     11 => "SIGSEGV",
                     13 => "SIGPIPE",
                     15 => "SIGTERM",
-                    _ => &"SIGUNKNOWN",
+                    _ => "SIGUNKNOWN",
                 };
                 (
                     format!("signaled ({})", sig_name),
@@ -346,7 +348,7 @@ impl Default for Terminator {
 /// Create a classification from exit reason
 pub fn classify_termination(
     exit_reason: Option<ExitReason>,
-    exit_code: i32,
+    _exit_code: i32,
     last_activity_tick: u64,
     no_output_ticks: u64,
     max_ticks: u64,
@@ -389,7 +391,7 @@ pub fn classify_termination(
         return TerminationClassification::InvariantViolation {
             invariant: v.name.clone(),
             checkpoint_index: v.step,
-            event_sequence: v.tick as u64,
+            event_sequence: v.tick,
             details: v.details.clone().unwrap_or_default(),
             description: format!("Invariant '{}' violated: {}", v.name, v.description),
         };

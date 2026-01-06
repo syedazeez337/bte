@@ -3,6 +3,8 @@
 //! This module provides low-level PTY operations for controlling terminal applications.
 //! It owns the terminal rather than simulating it.
 
+#![allow(dead_code)]
+
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
 use nix::pty::{openpty, OpenptyResult, Winsize};
 use nix::sys::termios::{self, LocalFlags, SetArg, Termios};
@@ -226,9 +228,21 @@ impl Pty {
             ws_ypixel: 0,
         };
 
-        // TIOCSWINSZ ioctl
+        // TIOCSWINSZ ioctl works on both Linux and macOS
+        // The Winsize struct is defined by nix to be compatible with both platforms
+        #[cfg(target_os = "linux")]
         unsafe {
-            let ret = libc::ioctl(master_fd, libc::TIOCSWINSZ, &winsize);
+            let ret = libc::ioctl(master_fd, libc::TIOCSWINSZ as _, &winsize);
+            if ret < 0 {
+                return Err(PtyError::ConfigurationFailed(nix::Error::last()));
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        unsafe {
+            // macOS uses the same structure but a different ioctl number
+            // TIOCSWINSZ is defined in <sys/ioctl.h> as 0x80087467
+            let ret = libc::ioctl(master_fd, 0x80087467 as _, &winsize);
             if ret < 0 {
                 return Err(PtyError::ConfigurationFailed(nix::Error::last()));
             }

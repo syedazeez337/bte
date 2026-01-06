@@ -5,7 +5,9 @@
 //! - Resize injection that notifies app via SIGWINCH
 //! - Non-deterministic scheduling error detection
 
-use crate::determinism::{BoundaryKind, DeterministicClock, DeterministicScheduler, SeededRng};
+#![allow(dead_code)]
+
+use crate::determinism::{BoundaryKind, DeterministicScheduler};
 use crate::process::{ProcessError, PtyProcess};
 
 /// Error type for timing and scheduling operations

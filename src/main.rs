@@ -7,8 +7,13 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 mod ansi;
+mod ci;
+mod defaults;
 mod determinism;
+mod explain;
+mod fuzzing;
 mod invariants;
+mod invariants_v2;
 mod io_loop;
 mod keys;
 mod process;
@@ -22,7 +27,6 @@ mod timing;
 mod trace;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const NAME: &str = env!("CARGO_PKG_NAME");
 
 #[derive(Parser, Debug)]
 #[command(name = "bte")]
