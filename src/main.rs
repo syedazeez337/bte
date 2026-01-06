@@ -13,9 +13,11 @@ mod io_loop;
 mod keys;
 mod process;
 mod pty;
+mod replay;
 mod runner;
 mod scenario;
 mod screen;
+mod termination;
 mod timing;
 mod trace;
 
