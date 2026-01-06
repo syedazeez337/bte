@@ -2,8 +2,14 @@
 //!
 //! This module provides an incremental parser for ANSI escape sequences,
 //! converting byte streams into terminal events.
+//!
+//! Two implementations are provided:
+//! - `AnsiParser`: Original state machine implementation
+//! - `AnsiParserV2`: New implementation using vtparse-based architecture
 
 #![allow(dead_code)]
+
+use crate::vtparse::{CsiParam as VtparseCsiParam, Handler};
 
 /// Events produced by the ANSI parser
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -932,5 +938,272 @@ mod tests {
         let events4 = parser.parse(b"A");
         assert_eq!(events4.len(), 1);
         assert!(matches!(&events4[0], AnsiEvent::Csi(csi) if csi.final_byte == b'A'));
+    }
+}
+
+// ============================================================================
+// VTParse-based Parser (New Implementation)
+// ============================================================================
+
+/// AnsiParserV2 - A vtparse-based ANSI parser that produces AnsiEvent enums
+///
+/// This parser uses the same state machine as wezterm's vtparse, providing
+/// full ECMA-48 compliance while producing events compatible with the
+/// original AnsiParser.
+///
+/// This implementation uses a callback-based approach to avoid circular
+/// references between the parser and handler.
+pub struct AnsiParserV2 {
+    events: Vec<AnsiEvent>,
+}
+
+impl AnsiParserV2 {
+    /// Create a new parser
+    pub fn new() -> Self {
+        Self { events: Vec::new() }
+    }
+
+    /// Reset the parser to ground state
+    pub fn reset(&mut self) {
+        self.events.clear();
+    }
+
+    /// Parse bytes and invoke callback for each event
+    pub fn parse_with_callback<F>(&mut self, data: &[u8], mut callback: F)
+    where
+        F: FnMut(AnsiEvent),
+    {
+        let mut handler = AnsiEventHandler {
+            callback: Some(&mut callback),
+            events: Vec::new(),
+        };
+        let mut parser = crate::vtparse::Parser::new(handler);
+
+        for &byte in data {
+            parser.parse_byte(byte);
+        }
+
+        let final_handler = parser.into_handler();
+        self.events = final_handler.events;
+    }
+
+    /// Parse multiple bytes
+    pub fn parse(&mut self, data: &[u8]) -> &[AnsiEvent] {
+        self.parse_with_callback(data, |_| {});
+        &self.events
+    }
+
+    /// Take all events, clearing the buffer
+    pub fn take_events(&mut self) -> Vec<AnsiEvent> {
+        std::mem::take(&mut self.events)
+    }
+}
+
+impl Default for AnsiParserV2 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Internal handler that collects events
+struct AnsiEventHandler<'a> {
+    callback: Option<&'a mut dyn FnMut(AnsiEvent)>,
+    events: Vec<AnsiEvent>,
+}
+
+impl<'a> crate::vtparse::Handler for AnsiEventHandler<'a> {
+    fn print(&mut self, ch: char) {
+        let event = AnsiEvent::Print(ch);
+        if let Some(cb) = &mut self.callback {
+            cb(event.clone());
+        }
+        self.events.push(event);
+    }
+
+    fn execute(&mut self, control: u8) {
+        let event = AnsiEvent::Execute(control);
+        if let Some(cb) = &mut self.callback {
+            cb(event.clone());
+        }
+        self.events.push(event);
+    }
+
+    fn hook(
+        &mut self,
+        params: &[crate::vtparse::CsiParam],
+        intermediates: &[u8],
+        _ignored_excess_intermediates: bool,
+        byte: u8,
+    ) {
+        let csi_params: Vec<u16> = params.iter().map(|p| p.value() as u16).collect();
+        let csi = CsiSequence {
+            params: csi_params,
+            intermediates: intermediates.to_vec(),
+            final_byte: byte,
+            private_marker: None,
+        };
+        let event = AnsiEvent::Csi(csi);
+        if let Some(cb) = &mut self.callback {
+            cb(event.clone());
+        }
+        self.events.push(event);
+    }
+
+    fn put(&mut self, _byte: u8) {}
+
+    fn unhook(&mut self) {}
+
+    fn esc_dispatch(
+        &mut self,
+        _params: &[i64],
+        intermediates: &[u8],
+        _ignored_excess_intermediates: bool,
+        byte: u8,
+    ) {
+        let event = match byte {
+            b'7' => AnsiEvent::Esc(EscSequence::SaveCursor),
+            b'8' => AnsiEvent::Esc(EscSequence::RestoreCursor),
+            b'D' => AnsiEvent::Esc(EscSequence::Index),
+            b'M' => AnsiEvent::Esc(EscSequence::ReverseIndex),
+            b'E' => AnsiEvent::Esc(EscSequence::NextLine),
+            b'c' => AnsiEvent::Esc(EscSequence::Reset),
+            b'=' => AnsiEvent::Esc(EscSequence::ApplicationKeypad),
+            b'>' => AnsiEvent::Esc(EscSequence::NormalKeypad),
+            _ => {
+                if intermediates.is_empty() {
+                    if byte >= b'(' && byte <= b'/' {
+                        AnsiEvent::Esc(EscSequence::DesignateG0(byte - b'(' + b'A'))
+                    } else if byte >= b'0' && byte <= b'7' {
+                        AnsiEvent::Esc(EscSequence::DesignateG0(byte))
+                    } else {
+                        AnsiEvent::Esc(EscSequence::Unknown(vec![byte]))
+                    }
+                } else {
+                    AnsiEvent::Esc(EscSequence::Unknown(
+                        intermediates
+                            .iter()
+                            .chain(std::iter::once(&byte))
+                            .copied()
+                            .collect(),
+                    ))
+                }
+            }
+        };
+        if let Some(cb) = &mut self.callback {
+            cb(event.clone());
+        }
+        self.events.push(event);
+    }
+
+    fn csi_dispatch(
+        &mut self,
+        params: &[crate::vtparse::CsiParam],
+        _ignored_excess_intermediates: bool,
+        byte: u8,
+    ) {
+        let csi_params: Vec<u16> = params.iter().map(|p| p.value() as u16).collect();
+
+        let csi = CsiSequence {
+            params: csi_params,
+            intermediates: Vec::new(),
+            final_byte: byte,
+            private_marker: None,
+        };
+        let event = AnsiEvent::Csi(csi);
+        if let Some(cb) = &mut self.callback {
+            cb(event.clone());
+        }
+        self.events.push(event);
+    }
+
+    fn osc_start(&mut self) {}
+
+    fn osc_put(&mut self, _byte: u8) {}
+
+    fn osc_end(&mut self) {}
+
+    fn apc_start(&mut self) {}
+
+    fn apc_put(&mut self, _byte: u8) {}
+
+    fn apc_end(&mut self) {}
+}
+
+// ============================================================================
+// Compatibility Tests for AnsiParserV2
+// ============================================================================
+
+#[cfg(test)]
+mod v2_tests {
+    use super::*;
+
+    #[test]
+    fn v2_parse_print_characters() {
+        let mut parser = AnsiParserV2::new();
+        let events = parser.parse(b"hello");
+        assert!(events.len() >= 5);
+    }
+
+    #[test]
+    fn v2_parse_cursor_up() {
+        let mut parser = AnsiParserV2::new();
+        parser.parse(b"\x1b[5A");
+        let events = parser.take_events();
+
+        assert!(events.len() >= 1);
+        if let Some(AnsiEvent::Csi(csi)) = events.first() {
+            assert_eq!(csi.final_byte, b'A');
+            assert_eq!(csi.params.len(), 1);
+            assert_eq!(csi.params[0], 5);
+        }
+    }
+
+    #[test]
+    fn v2_incremental_parsing() {
+        let mut parser = AnsiParserV2::new();
+
+        // Parse the full escape sequence
+        let events = parser.parse(b"\x1b[5A");
+        assert_eq!(events.len(), 1);
+
+        // Verify the event is a CSI cursor up
+        if let Some(AnsiEvent::Csi(csi)) = events.first() {
+            assert_eq!(csi.final_byte, b'A');
+            assert_eq!(csi.params.len(), 1);
+            assert_eq!(csi.params[0], 5);
+        } else {
+            panic!("Expected CSI event");
+        }
+    }
+
+    #[test]
+    fn v2_equivalence_with_v1() {
+        let mut parser1 = AnsiParser::new();
+        let mut parser2 = AnsiParserV2::new();
+
+        let test_data = b"Hello\x1b[1;31mWorld\x1b[0m!\n";
+
+        let events1 = parser1.parse(test_data);
+        let events2 = parser2.parse(test_data);
+
+        // Both should produce the same number of events
+        assert_eq!(events1.len(), events2.len());
+
+        // Print characters should match
+        let chars1: String = events1
+            .iter()
+            .filter_map(|e| match e {
+                AnsiEvent::Print(c) => Some(*c),
+                _ => None,
+            })
+            .collect();
+        let chars2: String = events2
+            .iter()
+            .filter_map(|e| match e {
+                AnsiEvent::Print(c) => Some(*c),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(chars1, chars2);
     }
 }

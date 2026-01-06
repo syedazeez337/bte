@@ -25,6 +25,7 @@ mod screen;
 mod termination;
 mod timing;
 mod trace;
+mod vtparse;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 

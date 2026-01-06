@@ -1,11 +1,12 @@
 //! Terminal Screen Grid Model
 //!
 //! This module provides a 2D grid model for terminal memory,
-//! with scrollback buffer and cursor tracking.
+//! with scrollback buffer, cursor tracking, and dirty line management.
 
 #![allow(dead_code)]
 
 use crate::ansi::{AnsiEvent, AnsiParser, CsiSequence, EscSequence};
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
 /// Simple FNV-1a hasher for deterministic hashing
@@ -239,6 +240,10 @@ pub struct Screen {
     scroll_region: (usize, usize),
     /// ANSI parser
     parser: AnsiParser,
+    /// Lines that have been modified since last render
+    dirty_lines: HashSet<usize>,
+    /// Whether dirty tracking is enabled
+    dirty_tracking_enabled: bool,
 }
 
 impl Screen {
@@ -258,6 +263,8 @@ impl Screen {
             saved_primary: None,
             scroll_region: (0, rows.saturating_sub(1)),
             parser: AnsiParser::new(),
+            dirty_lines: HashSet::new(),
+            dirty_tracking_enabled: false,
         }
     }
 
@@ -371,6 +378,9 @@ impl Screen {
             }
         }
 
+        // Mark current line as dirty
+        self.mark_dirty(self.cursor.row);
+
         self.cursor.col += 1;
     }
 
@@ -383,12 +393,14 @@ impl Screen {
             0x08 => {
                 if self.cursor.col > 0 {
                     self.cursor.col -= 1;
+                    self.mark_dirty(self.cursor.row);
                 }
             }
             // HT - Horizontal Tab
             0x09 => {
                 let next_tab = ((self.cursor.col / 8) + 1) * 8;
                 self.cursor.col = next_tab.min(self.cols.saturating_sub(1));
+                self.mark_dirty(self.cursor.row);
             }
             // LF, VT, FF - Line Feed (and variants)
             0x0a..=0x0c => {
@@ -397,10 +409,12 @@ impl Screen {
                     self.scroll_up(1);
                     self.cursor.row = self.scroll_region.1;
                 }
+                self.mark_dirty(self.cursor.row);
             }
             // CR - Carriage Return
             0x0d => {
                 self.cursor.col = 0;
+                self.mark_dirty(self.cursor.row);
             }
             _ => {}
         }
@@ -416,27 +430,32 @@ impl Screen {
                 if self.cursor.row < self.scroll_region.0 {
                     self.cursor.row = self.scroll_region.0;
                 }
+                self.mark_dirty(self.cursor.row);
             }
             // CUD - Cursor Down
             b'B' => {
                 let n = csi.param(0, 1) as usize;
                 self.cursor.row = (self.cursor.row + n).min(self.scroll_region.1);
+                self.mark_dirty(self.cursor.row);
             }
             // CUF - Cursor Forward
             b'C' => {
                 let n = csi.param(0, 1) as usize;
                 self.cursor.col = (self.cursor.col + n).min(self.cols.saturating_sub(1));
+                self.mark_dirty(self.cursor.row);
             }
             // CUB - Cursor Back
             b'D' => {
                 let n = csi.param(0, 1) as usize;
                 self.cursor.col = self.cursor.col.saturating_sub(n);
+                self.mark_dirty(self.cursor.row);
             }
             // CNL - Cursor Next Line
             b'E' => {
                 let n = csi.param(0, 1) as usize;
                 self.cursor.row = (self.cursor.row + n).min(self.scroll_region.1);
                 self.cursor.col = 0;
+                self.mark_dirty(self.cursor.row);
             }
             // CPL - Cursor Previous Line
             b'F' => {
@@ -446,11 +465,13 @@ impl Screen {
                     self.cursor.row = self.scroll_region.0;
                 }
                 self.cursor.col = 0;
+                self.mark_dirty(self.cursor.row);
             }
             // CHA - Cursor Horizontal Absolute
             b'G' => {
                 let col = csi.param(0, 1) as usize;
                 self.cursor.col = col.saturating_sub(1).min(self.cols.saturating_sub(1));
+                self.mark_dirty(self.cursor.row);
             }
             // CUP/HVP - Cursor Position
             b'H' | b'f' => {
@@ -458,6 +479,7 @@ impl Screen {
                 let col = csi.param(1, 1) as usize;
                 self.cursor.row = row.saturating_sub(1).min(self.rows.saturating_sub(1));
                 self.cursor.col = col.saturating_sub(1).min(self.cols.saturating_sub(1));
+                self.mark_dirty(self.cursor.row);
             }
             // ED - Erase in Display
             b'J' => {
@@ -688,6 +710,12 @@ impl Screen {
         for row in self.grid.iter_mut().skip(self.cursor.row + 1) {
             row.clear();
         }
+        // Mark all affected rows as dirty
+        if self.dirty_tracking_enabled {
+            for i in (self.cursor.row + 1)..self.rows {
+                self.dirty_lines.insert(i);
+            }
+        }
     }
 
     /// Erase from beginning of screen to cursor
@@ -703,6 +731,11 @@ impl Screen {
         for row in &mut self.grid {
             row.clear();
         }
+        if self.dirty_tracking_enabled {
+            for i in 0..self.rows {
+                self.dirty_lines.insert(i);
+            }
+        }
     }
 
     /// Clear entire screen and reset cursor
@@ -715,6 +748,7 @@ impl Screen {
     fn erase_line_right(&mut self) {
         if let Some(row) = self.grid.get_mut(self.cursor.row) {
             row.clear_from(self.cursor.col);
+            self.mark_dirty(self.cursor.row);
         }
     }
 
@@ -722,6 +756,7 @@ impl Screen {
     fn erase_line_left(&mut self) {
         if let Some(row) = self.grid.get_mut(self.cursor.row) {
             row.clear_to(self.cursor.col);
+            self.mark_dirty(self.cursor.row);
         }
     }
 
@@ -729,6 +764,7 @@ impl Screen {
     fn erase_line(&mut self) {
         if let Some(row) = self.grid.get_mut(self.cursor.row) {
             row.clear();
+            self.mark_dirty(self.cursor.row);
         }
     }
 
@@ -750,6 +786,12 @@ impl Screen {
                 } else {
                     self.grid.push(Row::new(self.cols));
                 }
+                // Mark all rows in the scroll region as dirty
+                if self.dirty_tracking_enabled {
+                    for i in top..=bottom.min(self.rows.saturating_sub(1)) {
+                        self.dirty_lines.insert(i);
+                    }
+                }
             }
         }
     }
@@ -761,6 +803,12 @@ impl Screen {
             if bottom < self.grid.len() && top <= bottom {
                 self.grid.remove(bottom);
                 self.grid.insert(top, Row::new(self.cols));
+                // Mark all rows in the scroll region as dirty
+                if self.dirty_tracking_enabled {
+                    for i in top..=bottom.min(self.rows.saturating_sub(1)) {
+                        self.dirty_lines.insert(i);
+                    }
+                }
             }
         }
     }
@@ -772,6 +820,12 @@ impl Screen {
             if self.cursor.row <= bottom && bottom < self.grid.len() {
                 self.grid.remove(bottom);
                 self.grid.insert(self.cursor.row, Row::new(self.cols));
+            }
+        }
+        // Mark affected rows as dirty
+        if self.dirty_tracking_enabled {
+            for i in self.cursor.row..=bottom.min(self.rows.saturating_sub(1)) {
+                self.dirty_lines.insert(i);
             }
         }
     }
@@ -789,6 +843,12 @@ impl Screen {
                 }
             }
         }
+        // Mark affected rows as dirty
+        if self.dirty_tracking_enabled {
+            for i in self.cursor.row..=bottom.min(self.rows.saturating_sub(1)) {
+                self.dirty_lines.insert(i);
+            }
+        }
     }
 
     /// Insert n blank characters at cursor
@@ -800,6 +860,7 @@ impl Screen {
                     row.cells.insert(self.cursor.col, Cell::new());
                 }
             }
+            self.mark_dirty(self.cursor.row);
         }
     }
 
@@ -812,7 +873,43 @@ impl Screen {
                     row.cells.push(Cell::new());
                 }
             }
+            self.mark_dirty(self.cursor.row);
         }
+    }
+
+    /// Mark a line as dirty
+    fn mark_dirty(&mut self, row: usize) {
+        if self.dirty_tracking_enabled {
+            self.dirty_lines.insert(row);
+        }
+    }
+
+    /// Get and clear dirty lines
+    pub fn take_dirty_lines(&mut self) -> HashSet<usize> {
+        std::mem::take(&mut self.dirty_lines)
+    }
+
+    /// Enable or disable dirty line tracking
+    pub fn set_dirty_tracking(&mut self, enabled: bool) {
+        self.dirty_tracking_enabled = enabled;
+        if !enabled {
+            self.dirty_lines.clear();
+        }
+    }
+
+    /// Check if dirty line tracking is enabled
+    pub fn is_dirty_tracking_enabled(&self) -> bool {
+        self.dirty_tracking_enabled
+    }
+
+    /// Clear all dirty lines
+    pub fn clear_dirty_lines(&mut self) {
+        self.dirty_lines.clear();
+    }
+
+    /// Get number of dirty lines
+    pub fn dirty_line_count(&self) -> usize {
+        self.dirty_lines.len()
     }
 
     /// Reset screen to initial state
@@ -1175,5 +1272,425 @@ mod tests {
         let mut screen2 = Screen::new(80, 24);
         screen2.process(b"Test Content");
         assert_eq!(hash1, screen2.state_hash());
+    }
+
+    #[test]
+    fn dirty_tracking_basic() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        // Initially no dirty lines
+        assert!(screen.take_dirty_lines().is_empty());
+
+        // Print something - should mark line 0 as dirty
+        screen.process(b"Hello");
+        let dirty = screen.take_dirty_lines();
+        assert!(dirty.contains(&0), "Expected line 0 to be dirty");
+
+        // Clear and check again
+        assert!(screen.take_dirty_lines().is_empty());
+    }
+
+    #[test]
+    fn dirty_tracking_cursor_movement() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        // Move cursor - should mark line as dirty
+        screen.process(b"\x1b[5;10H");
+        let dirty = screen.take_dirty_lines();
+        assert!(
+            dirty.contains(&4),
+            "Expected line 4 to be dirty after cursor move"
+        );
+    }
+
+    #[test]
+    fn dirty_tracking_erase() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        // Erase screen - all lines should be dirty
+        screen.process(b"\x1b[2J");
+        let dirty = screen.take_dirty_lines();
+        for i in 0..24 {
+            assert!(
+                dirty.contains(&i),
+                "Expected line {} to be dirty after erase",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn dirty_tracking_line_erase() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        screen.process(b"Hello World");
+        screen.process(b"\x1b[5G"); // Move to column 5
+        screen.process(b"\x1b[K"); // Clear to end of line
+
+        let dirty = screen.take_dirty_lines();
+        assert!(
+            dirty.contains(&0),
+            "Expected line 0 to be dirty after line erase"
+        );
+    }
+
+    #[test]
+    fn dirty_tracking_disabled() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(false);
+
+        screen.process(b"Hello");
+        let dirty = screen.take_dirty_lines();
+        assert!(dirty.is_empty(), "No dirty lines when tracking disabled");
+    }
+
+    #[test]
+    fn dirty_tracking_scroll() {
+        let mut screen = Screen::new(80, 5);
+        screen.set_dirty_tracking(true);
+
+        // Fill screen and trigger scroll
+        for i in 0..10 {
+            screen.process(format!("Line {}\n", i).as_bytes());
+        }
+
+        let dirty = screen.take_dirty_lines();
+        // At least some lines should be dirty after scrolling
+        assert!(!dirty.is_empty(), "Expected dirty lines after scrolling");
+    }
+
+    #[test]
+    fn dirty_tracking_insert_delete_lines() {
+        let mut screen = Screen::new(80, 10);
+        screen.set_dirty_tracking(true);
+
+        screen.process(b"\x1b[3;8r"); // Set scroll region
+        screen.process(b"\x1b[3H"); // Move to line 3
+
+        // Insert lines
+        screen.process(b"\x1b[2L");
+        let dirty = screen.take_dirty_lines();
+        assert!(!dirty.is_empty(), "Expected dirty lines after insert");
+
+        // Delete lines
+        screen.process(b"\x1b[1M");
+        let dirty = screen.take_dirty_lines();
+        assert!(!dirty.is_empty(), "Expected dirty lines after delete");
+    }
+
+    #[test]
+    fn dirty_tracking_insert_delete_chars() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        screen.process(b"Hello World");
+        screen.process(b"\x1b[1;6H"); // Move to row 1, column 6
+
+        // Insert characters
+        screen.process(b"\x1b[2@"); // Insert 2 chars
+        let dirty = screen.take_dirty_lines();
+        assert!(
+            dirty.contains(&0),
+            "Expected line 0 dirty after insert chars, got: {:?}",
+            dirty
+        );
+
+        // Delete characters - cursor at column 6, delete 2 chars
+        screen.process(b"\x1b[2P"); // Delete 2 chars
+        let dirty = screen.take_dirty_lines();
+        // After delete, line should still be dirty because content changed
+        assert!(
+            dirty.contains(&0),
+            "Expected line 0 dirty after delete chars, got: {:?}",
+            dirty
+        );
+    }
+
+    #[test]
+    fn dirty_tracking_alternate_screen() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        // Write in primary
+        screen.process(b"Primary");
+        let dirty1 = screen.take_dirty_lines();
+
+        // Switch to alternate
+        screen.process(b"\x1b[?1049h");
+        let dirty2 = screen.take_dirty_lines();
+
+        // Write in alternate
+        screen.process(b"Alternate");
+        let dirty3 = screen.take_dirty_lines();
+
+        // All should have dirty lines
+        assert!(!dirty1.is_empty());
+        assert!(!dirty2.is_empty());
+        assert!(!dirty3.is_empty());
+    }
+
+    #[test]
+    fn dirty_line_count() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        assert_eq!(screen.dirty_line_count(), 0);
+
+        screen.process(b"Line 1\nLine 2\nLine 3");
+        screen.take_dirty_lines(); // Clear dirty lines
+
+        // After scrolling, more lines should be dirty
+        for _ in 0..30 {
+            screen.process(b"More text\n");
+        }
+
+        assert!(screen.dirty_line_count() > 0);
+    }
+
+    // =========================================================================
+    // Stress Tests for Dirty Line Tracking
+    // =========================================================================
+
+    #[test]
+    fn stress_dirty_tracking_large_screen() {
+        let mut screen = Screen::new(200, 100);
+        screen.set_dirty_tracking(true);
+
+        // Fill the screen
+        for row in 0..100 {
+            let line = format!("Line {} with some content to fill the screen", row);
+            screen.process(line.as_bytes());
+            screen.process(b"\n");
+        }
+
+        let dirty = screen.take_dirty_lines();
+        // All rows should be dirty
+        assert_eq!(dirty.len(), 100, "Expected all 100 rows to be dirty");
+    }
+
+    #[test]
+    fn stress_dirty_tracking_heavy_scrolling() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        // Heavy scrolling - 1000 lines
+        for i in 0..1000 {
+            screen.process(format!("Line {}\n", i).as_bytes());
+        }
+
+        let dirty = screen.take_dirty_lines();
+        // Should have dirty lines from scrolling
+        assert!(
+            dirty.len() >= 20,
+            "Expected significant dirty lines from scrolling"
+        );
+
+        // Scrollback should have accumulated
+        assert!(
+            screen.scrollback_len() > 900,
+            "Expected scrollback to accumulate"
+        );
+    }
+
+    #[test]
+    fn stress_dirty_tracking_cursor_storm() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        // Cursor movement storm - move cursor around wildly
+        for i in 0..1000 {
+            let row = (i % 24) as u16 + 1;
+            let col = (i % 80) as u16 + 1;
+            screen.process(format!("\x1b[{};{}H", row, col).as_bytes());
+        }
+
+        let dirty = screen.take_dirty_lines();
+        // All rows should be affected by cursor movement
+        assert_eq!(dirty.len(), 24, "Expected all rows to be marked dirty");
+    }
+
+    #[test]
+    fn stress_dirty_tracking_repeated_clears() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        // Repeated clear screen operations
+        for _ in 0..100 {
+            screen.process(&b"Some content here\n".repeat(5));
+            screen.process(b"\x1b[2J"); // Clear screen
+            screen.take_dirty_lines(); // Clear dirty tracking
+        }
+
+        // Each clear should mark all lines dirty
+        for _ in 0..5 {
+            screen.process(b"Test\n");
+            let dirty = screen.take_dirty_lines();
+            assert!(!dirty.is_empty(), "Expected dirty lines after content");
+        }
+    }
+
+    #[test]
+    fn stress_dirty_tracking_insert_delete_lines() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+        screen.process(b"\x1b[3;20r"); // Set scroll region
+
+        // Heavy insert/delete line operations
+        for i in 0..500 {
+            screen.process(b"\x1b[5H"); // Move to line 5
+            screen.process(b"\x1b[3L"); // Insert 3 lines
+            screen.take_dirty_lines();
+
+            screen.process(b"\x1b[10H"); // Move to line 10
+            screen.process(b"\x1b[2M"); // Delete 2 lines
+            let dirty = screen.take_dirty_lines();
+            assert!(
+                !dirty.is_empty(),
+                "Expected dirty lines from insert/delete at iteration {}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn stress_dirty_tracking_erase_operations() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        // Various erase operations
+        for _ in 0..200 {
+            screen.process(&b"Hello World Test Data\n".repeat(3));
+
+            // Erase below
+            screen.process(b"\x1b[10;1H");
+            screen.process(b"\x1b[J");
+            let dirty1 = screen.take_dirty_lines();
+
+            // Erase line
+            screen.process(b"\x1b[5;1H");
+            screen.process(b"\x1b[2K");
+            let dirty2 = screen.take_dirty_lines();
+
+            assert!(!dirty1.is_empty() || !dirty2.is_empty());
+        }
+    }
+
+    #[test]
+    fn stress_dirty_tracking_sgr_rainbow() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        // SGR attribute changes - each line with different attributes
+        for i in 0..100 {
+            // Bold, colors, underline, etc.
+            let attr = format!("\x1b[{}m", (i % 10) + 1);
+            screen.process(attr.as_bytes());
+            screen.process(&format!("Styled line {}\n", i).as_bytes());
+        }
+
+        let dirty = screen.take_dirty_lines();
+        assert!(
+            dirty.len() >= 20,
+            "Expected many dirty lines from SGR changes"
+        );
+    }
+
+    #[test]
+    fn stress_dirty_tracking_alternate_screen_toggle() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        // Toggle alternate screen repeatedly
+        for i in 0..100 {
+            screen.process(b"\x1b[?1049h"); // Enter alternate screen
+            screen.process(&b"Alternate content\n".repeat(5));
+            let dirty1 = screen.take_dirty_lines();
+
+            screen.process(b"\x1b[?1049l"); // Exit alternate screen
+            screen.process(&b"Primary content\n".repeat(5));
+            let dirty2 = screen.take_dirty_lines();
+
+            assert!(
+                !dirty1.is_empty(),
+                "Expected dirty lines in alternate screen at {}",
+                i
+            );
+            assert!(
+                !dirty2.is_empty(),
+                "Expected dirty lines back in primary at {}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn stress_dirty_tracking_enabled_disabled() {
+        let mut screen = Screen::new(80, 24);
+
+        // Without tracking
+        screen.process(&b"Hello\n".repeat(100));
+        assert_eq!(screen.dirty_line_count(), 0);
+
+        // Enable tracking
+        screen.set_dirty_tracking(true);
+        screen.process(&b"New content\n".repeat(50));
+        assert!(screen.dirty_line_count() > 0);
+
+        // Disable tracking
+        screen.set_dirty_tracking(false);
+        screen.process(&b"More content\n".repeat(50));
+        assert_eq!(screen.dirty_line_count(), 0);
+
+        // Re-enable - should start fresh
+        screen.set_dirty_tracking(true);
+        screen.process(&b"Final content\n".repeat(10));
+        assert!(
+            screen.dirty_line_count() > 0,
+            "Expected dirty lines after re-enabling"
+        );
+    }
+
+    #[test]
+    fn stress_dirty_tracking_concurrent_modifications() {
+        let mut screen = Screen::new(80, 50);
+        screen.set_dirty_tracking(true);
+
+        // Simulate concurrent modifications at different locations
+        for i in 0..1000 {
+            let row = (i * 7) % 50;
+            let col = (i * 13) % 80;
+
+            // Move cursor and modify
+            screen.process(format!("\x1b[{};{}H", row + 1, col + 1).as_bytes());
+            screen.process(b"X");
+
+            // Every 10 operations, check dirty state
+            if i % 10 == 9 {
+                let dirty = screen.take_dirty_lines();
+                assert!(!dirty.is_empty(), "Expected dirty lines at iteration {}", i);
+            }
+        }
+    }
+
+    #[test]
+    fn stress_dirty_tracking_hash_performance() {
+        let mut screen = Screen::new(80, 24);
+        screen.set_dirty_tracking(true);
+
+        // Fill screen
+        screen.process(&b"Test data for hashing\n".repeat(20));
+        let dirty = screen.take_dirty_lines();
+
+        // Hash performance with dirty tracking
+        for _ in 0..100 {
+            let _ = screen.state_hash();
+            let _ = screen.text_hash();
+        }
+
+        assert!(!dirty.is_empty());
     }
 }
