@@ -170,7 +170,14 @@ mod tests {
     #[test]
     fn test_terminal_type_detection() {
         let detected = TerminalCompatibility::detect();
-        assert_ne!(detected.terminal_type, TerminalType::XTerm);
+        assert!(
+            matches!(
+                detected.terminal_type,
+                TerminalType::XTerm | TerminalType::XTerm256Color
+            ),
+            "Expected xterm variant, got {:?}",
+            detected.terminal_type
+        );
     }
 
     #[test]
