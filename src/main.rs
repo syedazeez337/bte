@@ -16,7 +16,6 @@ mod ecma48;
 mod explain;
 mod fuzzing;
 mod invariants;
-mod invariants_v2;
 mod io_loop;
 mod keys;
 mod llm;

@@ -323,21 +323,6 @@ impl<H: Handler> Parser<H> {
                 );
                 self.state = State::Ground;
             }
-            0x5d => {
-                self.osc_buffer.clear();
-                self.osc_params.clear();
-                self.osc_params.push(0);
-                self.state = State::OscString;
-            }
-            0x50 => {
-                self.clear_params();
-                self.state = State::DcsEntry;
-            }
-            0x5f => {
-                self.osc_buffer.clear();
-                self.osc_params.clear();
-                self.state = State::ApcString;
-            }
             _ => {
                 self.state = State::Ground;
             }

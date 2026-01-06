@@ -9,7 +9,7 @@
 
 #![allow(dead_code)]
 
-use crate::vtparse::{CsiParam as VtparseCsiParam, Handler};
+use crate::vtparse::Handler;
 
 /// Events produced by the ANSI parser
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -973,7 +973,7 @@ impl AnsiParserV2 {
     where
         F: FnMut(AnsiEvent),
     {
-        let mut handler = AnsiEventHandler {
+        let handler = AnsiEventHandler {
             callback: Some(&mut callback),
             events: Vec::new(),
         };

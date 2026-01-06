@@ -72,7 +72,7 @@ impl LlmAssistant {
         self.call_cli(prompt)
     }
 
-    fn call_cli(&self, prompt: &str) -> Option<String> {
+    fn call_cli(&self, _prompt: &str) -> Option<String> {
         let output = Command::new("ollama")
             .args(&["run", &self.model])
             .stdin(Stdio::piped())

@@ -5,6 +5,7 @@
 
 #![allow(dead_code)]
 
+use crate::determinism::DeterministicClock;
 use crate::process::{ExitReason, PtyProcess};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -165,7 +166,8 @@ pub struct ResourceInfo {
 
 /// Terminator - generates termination reports
 pub struct Terminator {
-    start_time: std::time::Instant,
+    start_ticks: u64,
+    clock: DeterministicClock,
     steps_executed: usize,
     events_processed: u64,
     output_bytes: u64,
@@ -179,8 +181,11 @@ pub struct Terminator {
 impl Terminator {
     /// Create a new terminator
     pub fn new() -> Self {
+        let clock = DeterministicClock::default();
+        let start_ticks = clock.now();
         Self {
-            start_time: std::time::Instant::now(),
+            start_ticks,
+            clock,
             steps_executed: 0,
             events_processed: 0,
             output_bytes: 0,
@@ -235,7 +240,7 @@ impl Terminator {
 
     /// Generate a termination report
     pub fn generate_report(
-        &self,
+        &mut self,
         classification: TerminationClassification,
         process: &PtyProcess,
         exit_reason: Option<ExitReason>,
@@ -243,18 +248,20 @@ impl Terminator {
         trace_seed: Option<u64>,
         violations: &[crate::invariants::InvariantResult],
     ) -> TerminationReport {
-        let runtime = self.start_time.elapsed();
+        let elapsed_ticks = self.clock.now() - self.start_ticks;
+        let runtime_ms = elapsed_ticks * 1; // 1ms per tick
+        let runtime = Duration::from_millis(runtime_ms);
+
         let ticks_per_second = if self.no_output_ticks > 0 {
-            // Estimate based on runtime
-            100.0 // ticks per second estimate
+            100.0
         } else {
-            100.0 // default estimate
+            100.0
         };
 
         let exit_info = self.create_exit_info(process, exit_reason, runtime);
 
         let metrics = TerminationMetrics {
-            total_ticks: self.no_output_ticks * 10, // Estimate
+            total_ticks: self.no_output_ticks * 10,
             ticks_per_second,
             output_bytes: self.output_bytes,
             input_bytes: self.input_bytes,
