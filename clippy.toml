@@ -1,0 +1,5 @@
+# Disallow non-deterministic types
+disallowed-types = [
+    { path = "std::time::SystemTime", reason = "Use DeterministicClock instead for determinism" },
+    { path = "std::time::Instant", reason = "Use DeterministicClock instead for determinism" },
+]

@@ -1,0 +1,17 @@
+name: "hello-world test"
+description: "Simple test that runs echo hello world"
+command: "echo 'Hello, World!'"
+
+steps:
+  - action: wait_for
+    pattern: "Hello, World"
+  - action: send_keys
+    keys: "exit\n"
+
+invariants:
+  - type: cursor_bounds
+  - type: no_deadlock
+    timeout_ms: 5000
+
+seed: 42
+timeout_ms: 10000
