@@ -18,21 +18,67 @@ jobs:
           toolchain: stable
           profile: minimal
 
-      - name: Install BTE
-        run: cargo install bte --locked
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo
+          key: ${{ runner.os }}-cargo-${{ hashFormat('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
-      - name: Run BTE Tests
-        run: |
-          echo "Running BTE test suite..."
-          bte run examples/ratatui/counter.yaml
-          bte run examples/ratatui/form.yaml
-          bte run examples/ratatui/layout.yaml
+      - name: Run Unit Tests
+        run: cargo test
+
+      - name: Run Integration Tests
+        run: cargo test --test scenario_tests
 
       - name: Upload Test Results
         uses: actions/upload-artifact@v4
         with:
-          name: bte-results
-          path: bte-*.json
+          name: bte-test-results
+          path: target/test-results/
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Audit Dependencies
+        run: cargo audit --deny warnings
+
+      - name: Check for Unmaintained Dependencies
+        run: cargo audit --unmaintained
+
+      - name: Check for Security Patches
+        run: cargo audit --sec-only
+
+  benchmarks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Run Benchmarks
+        run: |
+          echo "Running BTE benchmarks..."
+          cargo bench -- --test-threads=1 2>&1 | tee benchmark-results.txt
+
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bte-benchmarks
+          path: benchmark-results.txt
 
   ratatui-integration:
     runs-on: ubuntu-latest
@@ -55,3 +101,33 @@ jobs:
           bte run examples/ratatui/counter.yaml
           bte run examples/ratatui/form.yaml
           bte run examples/ratatui/layout.yaml
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: clippy
+
+      - name: Run Clippy
+        run: cargo clippy --all-features --all-targets -- -D warnings
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: rustfmt
+
+      - name: Check Formatting
+        run: cargo fmt --all -- --check
