@@ -1,0 +1,20 @@
+[package]
+name = "bte-ratatui-examples"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ratatui = "0.30"
+crossterm = "0.28"
+
+[[bin]]
+name = "counter"
+path = "src/counter.rs"
+
+[[bin]]
+name = "form"
+path = "src/form.rs"
+
+[[bin]]
+name = "layout"
+path = "src/layout.rs"

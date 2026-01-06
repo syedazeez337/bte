@@ -1,0 +1,45 @@
+name: bte-cloud-test
+description: BTE test running in cloud environment
+
+env:
+  BTE_CLOUD_MODE: "true"
+  BTE_PARALLEL_WORKERS: "4"
+
+steps:
+  - type: spawn
+    command: bte run examples/ratatui/counter.yaml
+    timeout: 30000
+
+  - type: wait
+    duration: 1000ms
+
+  - type: expect_screen
+    pattern: "Counter: 0"
+    description: Initial counter value visible
+
+  - type: send_keys
+    keys:
+      - "i"
+      - "i"
+      - "i"
+
+  - type: wait
+    duration: 500ms
+
+  - type: expect_screen
+    pattern: "Counter: 3"
+    description: Counter incremented to 3
+
+  - type: send_keys
+    keys:
+      - "q"
+
+  - type: wait
+    duration: 500ms
+
+  - type: assert_exit_code
+    expected: 0
+
+invariants:
+  - type: cursor_in_bounds
+  - type: screen_no_overlap

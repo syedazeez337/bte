@@ -1,0 +1,57 @@
+name: BTE Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Install BTE
+        run: cargo install bte --locked
+
+      - name: Run BTE Tests
+        run: |
+          echo "Running BTE test suite..."
+          bte run examples/ratatui/counter.yaml
+          bte run examples/ratatui/form.yaml
+          bte run examples/ratatui/layout.yaml
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bte-results
+          path: bte-*.json
+
+  ratatui-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Build Ratatui Examples
+        run: |
+          cd examples/ratatui
+          cargo build --release
+
+      - name: Run Ratatui Tests
+        run: |
+          bte run examples/ratatui/counter.yaml
+          bte run examples/ratatui/form.yaml
+          bte run examples/ratatui/layout.yaml

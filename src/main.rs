@@ -7,25 +7,32 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 mod ansi;
+mod benchmark;
 mod ci;
+mod compat;
 mod defaults;
 mod determinism;
+mod ecma48;
 mod explain;
 mod fuzzing;
 mod invariants;
 mod invariants_v2;
 mod io_loop;
 mod keys;
+mod llm;
 mod process;
 mod pty;
+mod ratatui;
 mod replay;
 mod runner;
 mod scenario;
 mod screen;
+mod security;
 mod termination;
 mod timing;
 mod trace;
 mod vtparse;
+mod wasm;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 

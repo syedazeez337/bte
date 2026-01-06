@@ -1,0 +1,63 @@
+name: ecma48-protocol-test
+description: Test ECMA-48 protocol compliance
+
+steps:
+  - type: spawn
+    command: ./test_apps/protocol_tester
+    timeout: 5000
+
+  - type: wait
+    duration: 500ms
+
+  - type: expect_screen
+    pattern: "SGR Tests"
+    description: SGR test screen visible
+
+  - type: send_keys
+    keys:
+      - "1"
+
+  - type: wait
+    duration: 200ms
+
+  - type: expect_screen
+    pattern: "Bold"
+    description: Bold text rendered
+
+  - type: send_keys
+    keys:
+      - "2"
+
+  - type: wait
+    duration: 200ms
+
+  - type: expect_screen
+    pattern: "Italic"
+    description: Italic text rendered
+
+  - type: send_keys
+    keys:
+      - "3"
+
+  - type: wait
+    duration: 200ms
+
+  - type: expect_screen
+    pattern: "Underline"
+    description: Underline text rendered
+
+  - type: send_keys
+    keys:
+      - "q"
+
+  - type: wait
+    duration: 200ms
+
+  - type: assert_exit_code
+    expected: 0
+
+invariants:
+  - type: ecma48_sgr_compliance
+    description: SGR sequences comply with ECMA-48
+  - type: ecma48_csi_compliance
+    description: CSI sequences comply with ECMA-48

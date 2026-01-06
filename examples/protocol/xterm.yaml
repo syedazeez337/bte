@@ -1,0 +1,76 @@
+name: xterm-extensions-test
+description: Test xterm-specific extensions
+
+steps:
+  - type: spawn
+    command: ./test_apps/xterm_tester
+    timeout: 5000
+
+  - type: wait
+    duration: 500ms
+
+  - type: expect_screen
+    pattern: "XTerm Tests"
+    description: XTerm test screen visible
+
+  - type: send_keys
+    keys:
+      - "1"
+
+  - type: wait
+    duration: 200ms
+
+  - type: expect_screen
+    pattern: "256 Colors"
+    description: 256-color palette visible
+
+  - type: send_keys
+    keys:
+      - "2"
+
+  - type: wait
+    duration: 200ms
+
+  - type: expect_screen
+    pattern: "True Color"
+    description: True color gradients visible
+
+  - type: send_keys
+    keys:
+      - "3"
+
+  - type: wait
+    duration: 200ms
+
+  - type: expect_screen
+    pattern: "Mouse"
+    description: Mouse tracking enabled
+
+  - type: send_keys
+    keys:
+      - "4"
+
+  - type: wait
+    duration: 200ms
+
+  - type: expect_screen
+    pattern: "Title"
+    description: Window title set
+
+  - type: send_keys
+    keys:
+      - "q"
+
+  - type: wait
+    duration: 200ms
+
+  - type: assert_exit_code
+    expected: 0
+
+invariants:
+  - type: xterm_color_support
+    description: xterm 256-color and true-color supported
+  - type: xterm_mouse_tracking
+    description: xterm mouse tracking works
+  - type: xterm_title_support
+    description: xterm window title supported

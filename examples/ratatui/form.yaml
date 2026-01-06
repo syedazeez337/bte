@@ -1,0 +1,86 @@
+name: ratatui-form-test
+description: Test ratatui form application with BTE
+
+steps:
+  - type: spawn
+    command: cargo run --example form --manifest-path examples/ratatui/Cargo.toml
+    timeout: 5000
+
+  - type: wait
+    duration: 500ms
+
+  - type: expect_screen
+    pattern: "Contact Form"
+    description: Form title visible
+
+  - type: expect_screen
+    pattern: "Name"
+    description: Name field visible
+
+  - type: expect_screen
+    pattern: "Email"
+    description: Email field visible
+
+  - type: send_keys
+    keys:
+      - "J"
+      - "o"
+      - "h"
+      - "n"
+
+  - type: wait
+    duration: 200ms
+
+  - type: expect_screen
+    pattern: "John"
+    description: Name input visible
+
+  - type: send_keys
+    keys:
+      - "Tab"
+      - "j"
+      - "o"
+      - "h"
+      - "n"
+      - "@"
+      - "e"
+      - "x"
+      - "a"
+      - "m"
+      - "p"
+      - "l"
+      - "e"
+
+  - type: wait
+    duration: 200ms
+
+  - type: expect_screen
+    pattern: "@example"
+    description: Email with @ visible
+
+  - type: send_keys
+    keys:
+      - "Enter"
+
+  - type: wait
+    duration: 200ms
+
+  - type: expect_screen
+    pattern: "No errors"
+    description: Form submits without errors
+
+  - type: send_keys
+    keys:
+      - "q"
+
+  - type: wait
+    duration: 200ms
+
+  - type: assert_exit_code
+    expected: 0
+
+invariants:
+  - type: cursor_in_bounds
+    description: Cursor stays within screen bounds
+  - type: screen_no_overlap
+    description: No cell content overlap

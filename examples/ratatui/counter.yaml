@@ -1,0 +1,72 @@
+# BTE Test Scenario for ratatui counter application
+# This tests the counter TUI with key injections and screen verification
+
+name: ratatui-counter-test
+description: Test ratatui counter application with BTE
+
+steps:
+  - type: spawn
+    command: cargo run --example counter --manifest-path examples/ratatui/Cargo.toml
+    timeout: 5000
+
+  - type: wait
+    duration: 500ms
+
+  # Initial screen should show "Counter: 0"
+  - type: expect_screen
+    pattern: "Counter: 0"
+    description: Initial counter value is 0
+
+  # Increment counter 3 times
+  - type: send_keys
+    keys:
+      - "i"
+      - "i"
+      - "i"
+    delay: 100ms
+
+  - type: wait
+    duration: 200ms
+
+  # Screen should show "Counter: 3"
+  - type: expect_screen
+    pattern: "Counter: 3"
+    description: Counter incremented to 3
+
+  # Decrement counter 2 times
+  - type: send_keys
+    keys:
+      - "d"
+      - "d"
+    delay: 100ms
+
+  - type: wait
+    duration: 200ms
+
+  # Screen should show "Counter: 1"
+  - type: expect_screen
+    pattern: "Counter: 1"
+    description: Counter decremented to 1
+
+  # Verify instructions are displayed
+  - type: expect_screen
+    pattern: "Press.*increment.*decrement.*quit"
+    description: Instructions panel visible
+
+  # Quit the application
+  - type: send_keys
+    keys:
+      - "q"
+
+  - type: wait
+    duration: 200ms
+
+  # Process should have exited
+  - type: assert_exit_code
+    expected: 0
+
+invariants:
+  - type: cursor_in_bounds
+    description: Cursor stays within screen bounds
+  - type: screen_no_overlap
+    description: No cell content overlap

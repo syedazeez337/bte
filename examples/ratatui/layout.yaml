@@ -1,0 +1,76 @@
+name: ratatui-layout-test
+description: Test ratatui layout application with BTE
+
+steps:
+  - type: spawn
+    command: cargo run --example layout --manifest-path examples/ratatui/Cargo.toml
+    timeout: 5000
+
+  - type: wait
+    duration: 500ms
+
+  - type: expect_screen
+    pattern: "Sidebar"
+    description: Sidebar panel visible
+
+  - type: expect_screen
+    pattern: "Content List"
+    description: Content list panel visible
+
+  - type: expect_screen
+    pattern: "Item 1"
+    description: First item visible
+
+  - type: expect_screen
+    pattern: "Item 5"
+    description: Last item visible
+
+  - type: send_keys
+    keys:
+      - "Down"
+
+  - type: wait
+    duration: 200ms
+
+  - type: expect_screen
+    pattern: "Item 2"
+    description: Second item selected
+
+  - type: send_keys
+    keys:
+      - "Down"
+      - "Down"
+
+  - type: wait
+    duration: 200ms
+
+  - type: expect_screen
+    pattern: "Item 4"
+    description: Fourth item selected
+
+  - type: send_keys
+    keys:
+      - "Up"
+
+  - type: wait
+    duration: 200ms
+
+  - type: expect_screen
+    pattern: "Item 3"
+    description: Third item selected after up
+
+  - type: send_keys
+    keys:
+      - "q"
+
+  - type: wait
+    duration: 200ms
+
+  - type: assert_exit_code
+    expected: 0
+
+invariants:
+  - type: cursor_in_bounds
+    description: Cursor stays within screen bounds
+  - type: screen_no_overlap
+    description: No cell content overlap
