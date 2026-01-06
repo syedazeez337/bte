@@ -1,0 +1,152 @@
+name: "Interactive bash operations"
+description: "Test complex bash features: arrays, functions, conditionals"
+command: "bash"
+
+steps:
+  - action: send_keys
+    keys: |
+      # Variable operations
+      export BTE_VAR="test-value"
+      echo "Variable: $BTE_VAR"
+      enter
+
+  - action: wait_for
+    pattern: "test-value"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Array operations
+      fruits=("apple" "banana" "cherry" "date")
+      echo "Array size: ${#fruits[@]}"
+      echo "Second item: ${fruits[1]}"
+      echo "All items: ${fruits[@]}"
+      enter
+
+  - action: wait_for
+    pattern: "banana"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Conditional logic
+      num=42
+      if [ $num -gt 40 ]; then
+        echo "Number ($num) is greater than 40"
+      elif [ $num -eq 40 ]; then
+        echo "Number is exactly 40"
+      else
+        echo "Number is less than 40"
+      fi
+      enter
+
+  - action: wait_for
+    pattern: "greater than 40"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # For loop
+      for i in one two three; do
+        echo "Item: $i"
+      done
+      enter
+
+  - action: wait_for
+    pattern: "Item: three"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # C-style for loop
+      for ((i=0; i<3; i++)); do
+        echo "Iteration $i"
+      done
+      enter
+
+  - action: wait_for
+    pattern: "Iteration 2"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # While loop
+      count=0
+      while [ $count -lt 3 ]; do
+        echo "Count: $count"
+        count=$((count + 1))
+      done
+      enter
+
+  - action: wait_for
+    pattern: "Count: 2"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Function definition and call
+      greet() {
+        local name="$1"
+        echo "Hello, $name!"
+      }
+      greet "World"
+      greet "BTE"
+      enter
+
+  - action: wait_for
+    pattern: "Hello, BTE"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Command substitution
+      current_date=$(date +%Y-%m-%d)
+      current_time=$(date +%H:%M:%S)
+      echo "Today: $current_date"
+      echo "Time: $current_time"
+      enter
+
+  - action: wait_for
+    pattern: "Today:"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Case statement
+      value="two"
+      case $value in
+        one) echo "Value is 1" ;;
+        two) echo "Value is 2" ;;
+        three) echo "Value is 3" ;;
+        *) echo "Unknown value" ;;
+      esac
+      enter
+
+  - action: wait_for
+    pattern: "Value is 2"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # String operations
+      str="Hello, World!"
+      echo "Length: ${#str}"
+      echo "Uppercase: ${str^^}"
+      echo "Lowercase: ${str,,}"
+      echo "Substring: ${str:0:5}"
+      enter
+
+  - action: wait_for
+    pattern: "HELLO, WORLD!"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: "exit\n"
+
+invariants:
+  - type: cursor_bounds
+  - type: screen_contains
+    pattern: "Value is 2"
+
+seed: 4001
+timeout_ms: 120000

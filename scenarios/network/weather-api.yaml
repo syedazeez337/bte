@@ -1,0 +1,74 @@
+name: "Open-Meteo Weather API"
+description: "Test free weather API with location and time queries"
+command: "bash"
+
+steps:
+  - action: send_keys
+    keys: |
+      echo "=== Current Weather - New York ==="
+      curl -s "https://api.open-meteo.com/v1/forecast?latitude=40.7128&longitude=-74.0060&current_weather=true" | jq '{temp: .current_weather.temperature, wind: .current_weather.windspeed}'
+      enter
+
+  - action: wait_for
+    pattern: "temp"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Multiple Locations ==="
+      curl -s "https://api.open-meteo.com/v1/forecast?latitude=51.5074&longitude=-0.1278&current_weather=true" | jq '{city: "London", temp: .current_weather.temperature}'
+      enter
+
+  - action: wait_for
+    pattern: "London"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Hourly Forecast ==="
+      curl -s "https://api.open-meteo.com/v1/forecast?latitude=35.6762&longitude=139.6503&hourly=temperature_2m" | jq '.hourly | {times: .time[0:5], temps: .temperature_2m[0:5]}'
+      enter
+
+  - action: wait_for
+    pattern: "times"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Daily Forecast ==="
+      curl -s "https://api.open-meteo.com/v1/forecast?latitude=48.8566&longitude=2.3522&daily=temperature_2m_max,temperature_2m_min" | jq '.daily | {dates: .time[0:3], max_temp: .temperature_2m_max[0:3]}'
+      enter
+
+  - action: wait_for
+    pattern: "dates"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Historical Data ==="
+      curl -s "https://archive-api.open-meteo.com/v1/archive?latitude=40.7128&longitude=-74.0060&start_date=2023-01-01&end_date=2023-01-07&daily=temperature_2m_max" | jq '.daily | {dates: .time, temps: .temperature_2m_max}'
+      enter
+
+  - action: wait_for
+    pattern: "dates"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Marine Weather ==="
+      curl -s "https://marine-api.open-meteo.com/v1/marine?latitude=40.7128&longitude=-74.0060&current=wave_height,wave_period" | jq '.current'
+      enter
+
+  - action: wait_for
+    pattern: "wave"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: "exit\n"
+
+invariants:
+  - type: cursor_bounds
+  - type: no_deadlock
+    timeout_ms: 180000
+
+seed: 2003

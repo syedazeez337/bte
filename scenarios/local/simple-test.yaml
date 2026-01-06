@@ -1,0 +1,18 @@
+name: "Echo command test"
+description: "Test echo command directly"
+command: "echo"
+
+steps:
+  - action: send_keys
+    keys: |
+      hello world
+      enter
+
+  - action: wait_ticks
+    ticks: 10
+
+invariants:
+  - type: cursor_bounds
+
+seed: 1001
+timeout_ms: 30000

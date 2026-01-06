@@ -1,0 +1,107 @@
+name: "Resource consumption test"
+description: "Test behavior under high resource usage"
+command: "bash"
+
+steps:
+  - action: send_keys
+    keys: |
+      echo "=== Test 1: File Descriptor Test ==="
+      for fd in {0..50}; do
+        eval "exec $fd< /dev/null"
+      done
+      echo "Opened 51 file descriptors"
+      enter
+
+  - action: wait_for
+    pattern: "Opened 51"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 2: Process Creation Test ==="
+      for i in {1..30}; do
+        sleep 0.01 &
+      done
+      wait
+      echo "Created and waited for 30 background processes"
+      enter
+
+  - action: wait_for
+    pattern: "30 background processes"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 3: Memory Allocation Test ==="
+      python3 -c 'import sys; data = "x" * (50 * 1024 * 1024); print(f"Allocated {len(data)} bytes"); del data; print("Memory freed")'
+      enter
+
+  - action: wait_for
+    pattern: "Memory freed"
+    timeout_ms: 30000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 4: Temporary File Operations ==="
+      for i in $(seq 1 100); do
+        echo "File $i content" > /tmp/bte_temp_$i.txt
+      done
+      count=$(ls /tmp/bte_temp_*.txt 2>/dev/null | wc -l)
+      echo "Created $count temporary files"
+      rm /tmp/bte_temp_*.txt
+      echo "Cleaned up"
+      enter
+
+  - action: wait_for
+    pattern: "Cleaned up"
+    timeout_ms: 10000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 5: Subshell Nesting ==="
+      (
+        (
+          (
+            echo "Level 3"
+          )
+        )
+      )
+      echo "Subshell nesting works"
+      enter
+
+  - action: wait_for
+    pattern: "works"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 6: Pipe Chain ==="
+      seq 1 100 | grep "[0-9]" | head -10 | wc -l
+      enter
+
+  - action: wait_for
+    pattern: "10"
+    timeout_ms: 10000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 7: Echo Test ==="
+      echo "Line 1"
+      echo "Line 2"
+      echo "Line 3"
+      echo "Echo test works"
+      enter
+
+  - action: wait_for
+    pattern: "Here-doc works"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: "exit\n"
+
+invariants:
+  - type: cursor_bounds
+  - type: no_deadlock
+    timeout_ms: 120000
+
+seed: 5002

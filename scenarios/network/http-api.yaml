@@ -1,0 +1,98 @@
+name: "HTTP API testing"
+description: "Test various HTTP request scenarios with httpbin"
+command: "bash"
+
+steps:
+  - action: send_keys
+    keys: |
+      echo "=== Test 1: Basic GET ==="
+      curl -s https://httpbin.org/get | jq -r '.url'
+      echo ""
+      enter
+
+  - action: wait_for
+    pattern: "httpbin.org/get"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 2: Response Headers ==="
+      curl -s -I https://httpbin.org/get | head -5
+      enter
+
+  - action: wait_for
+    pattern: "HTTP/"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 3: Status Codes ==="
+      echo -n "200: " && curl -s -o /dev/null -w "%{http_code}" https://httpbin.org/status/200
+      echo ""
+      echo -n "404: " && curl -s -o /dev/null -w "%{http_code}" https://httpbin.org/status/404
+      echo ""
+      enter
+
+  - action: wait_for
+    pattern: "200"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 4: JSON POST ==="
+      curl -s -X POST -d '{"test":true,"value":42}' https://httpbin.org/post | jq '.json'
+      enter
+
+  - action: wait_for
+    pattern: "test.*true"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 5: Query Parameters ==="
+      curl -s "https://httpbin.org/get?name=Test&count=5" | jq '.args'
+      enter
+
+  - action: wait_for
+    pattern: "name.*Test"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 6: Cookies ==="
+      curl -s -b "cookie1=value1;cookie2=value2" https://httpbin.org/cookies | jq '.cookies'
+      enter
+
+  - action: wait_for
+    pattern: "cookie1"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 7: User Agent ==="
+      curl -s -A "BTE-Test/1.0" https://httpbin.org/user-agent | jq '.user-agent'
+      enter
+
+  - action: wait_for
+    pattern: "BTE-Test"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 8: IP Address ==="
+      curl -s https://httpbin.org/ip | jq '.origin'
+      enter
+
+  - action: wait_for
+    pattern: "[0-9]"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: "exit\n"
+
+invariants:
+  - type: cursor_bounds
+  - type: no_deadlock
+    timeout_ms: 180000
+
+seed: 2001

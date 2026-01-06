@@ -1,0 +1,89 @@
+name: "Network failure handling"
+description: "Test behavior under various network failure scenarios"
+command: "bash"
+
+steps:
+  - action: send_keys
+    keys: |
+      echo "=== Test 1: Connection Timeout ==="
+      timeout 5 curl -s --connect-timeout 2 https://10.255.255.1 2>&1 | head -3 || echo "Timed out as expected"
+      enter
+
+  - action: wait_for
+    pattern: "timed|Connection"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 2: Invalid Domain ==="
+      timeout 5 curl -s --connect-timeout 2 http://this-domain-does-not-exist-12345.invalid 2>&1 | head -3 || echo "DNS failed as expected"
+      enter
+
+  - action: wait_for
+    pattern: "failed|could not resolve"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 3: 404 Not Found ==="
+      code=$(curl -s -o /dev/null -w "%{http_code}" https://httpbin.org/status/404)
+      echo "HTTP 404 response: $code"
+      enter
+
+  - action: wait_for
+    pattern: "HTTP 404"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 4: 500 Server Error ==="
+      code=$(curl -s -o /dev/null -w "%{http_code}" https://httpbin.org/status/500)
+      echo "HTTP 500 response: $code"
+      enter
+
+  - action: wait_for
+    pattern: "HTTP 500"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 5: Redirect Handling ==="
+      url=$(curl -sL -o /dev/null -w "%{url_effective}" https://httpbin.org/redirect-to?url=https://example.com)
+      echo "Final URL after redirect: $url"
+      enter
+
+  - action: wait_for
+    pattern: "example.com"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 6: SSL/TLS Error ==="
+      curl -s --max-time 5 https://expired.badssl.com 2>&1 | head -3 || echo "SSL error as expected"
+      enter
+
+  - action: wait_for
+    pattern: "certificate|SSL|error"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 7: Rate Limit Response ==="
+      for i in {1..6}; do curl -s https://httpbin.org/headers 2>&1 > /dev/null; done
+      remaining=$(curl -sI https://httpbin.org/headers | grep -i x-ratelimit-remaining | awk '{print $2}' | tr -d '\r')
+      echo "Rate limit remaining: $remaining"
+      enter
+
+  - action: wait_for
+    pattern: "remaining|Rate limit"
+    timeout_ms: 30000
+
+  - action: send_keys
+    keys: "exit\n"
+
+invariants:
+  - type: cursor_bounds
+  - type: no_deadlock
+    timeout_ms: 180000
+
+seed: 6001

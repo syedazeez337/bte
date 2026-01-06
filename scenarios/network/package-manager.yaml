@@ -1,0 +1,84 @@
+name: "Package manager operations"
+description: "Test apt-get update, search, and policy"
+command: "bash"
+
+steps:
+  - action: send_keys
+    keys: |
+      echo "=== Update Package List ==="
+      sudo apt-get update -qq 2>&1 | tail -5
+      enter
+
+  - action: wait_for
+    pattern: "done|Hit|Get"
+    timeout_ms: 120000
+
+  - action: send_keys
+    keys: |
+      echo "=== Search for curl ==="
+      apt-cache search curl | head -5
+      enter
+
+  - action: wait_for
+    pattern: "curl"
+    timeout_ms: 30000
+
+  - action: send_keys
+    keys: |
+      echo "=== Show curl package info ==="
+      apt-cache policy curl 2>&1 | head -10
+      enter
+
+  - action: wait_for
+    pattern: "curl:"
+    timeout_ms: 30000
+
+  - action: send_keys
+    keys: |
+      echo "=== Show curl dependencies ==="
+      apt-cache depends curl | head -10
+      enter
+
+  - action: wait_for
+    pattern: "Depends"
+    timeout_ms: 30000
+
+  - action: send_keys
+    keys: |
+      echo "=== Verify curl is installed ==="
+      which curl && curl --version | head -1
+      enter
+
+  - action: wait_for
+    pattern: "curl"
+    timeout_ms: 10000
+
+  - action: send_keys
+    keys: |
+      echo "=== List installed packages ==="
+      dpkg -l | grep curl | head -3
+      enter
+
+  - action: wait_for
+    pattern: "curl"
+    timeout_ms: 10000
+
+  - action: send_keys
+    keys: |
+      echo "=== Check for updates ==="
+      apt list --upgradable 2>/dev/null | head -5 || echo "No updates available"
+      enter
+
+  - action: wait_for
+    pattern: "upgradable|No updates"
+    timeout_ms: 30000
+
+  - action: send_keys
+    keys: "exit\n"
+
+invariants:
+  - type: cursor_bounds
+  - type: no_deadlock
+    timeout_ms: 300000
+
+seed: 2002

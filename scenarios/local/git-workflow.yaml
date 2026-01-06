@@ -1,0 +1,101 @@
+name: "Git workflow test"
+description: "Test basic git operations: init, add, commit, log"
+command: "bash"
+
+steps:
+  - action: send_keys
+    keys: |
+      # Setup test repository
+      cd /tmp
+      rm -rf bte-git-test
+      mkdir bte-git-test
+      cd bte-git-test
+      git init
+      enter
+
+  - action: wait_for
+    pattern: "Initialized"
+    timeout_ms: 10000
+
+  - action: send_keys
+    keys: |
+      # Configure git
+      git config user.email "test@example.com"
+      git config user.name "Test User"
+      echo "Git configured"
+      enter
+
+  - action: wait_for
+    pattern: "Git configured"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Create and commit initial file
+      echo "# Test Repository" > README.md
+      git add README.md
+      git commit -m "Initial commit: Add README"
+      enter
+
+  - action: wait_for
+    pattern: "Initial commit"
+    timeout_ms: 10000
+
+  - action: send_keys
+    keys: |
+      # Add more content
+      echo "This is line 2" >> README.md
+      echo "This is line 3" >> README.md
+      git add README.md
+      git commit -m "Add more content"
+      enter
+
+  - action: wait_for
+    pattern: "Add more content"
+    timeout_ms: 10000
+
+  - action: send_keys
+    keys: |
+      # View history
+      git log --oneline
+      enter
+
+  - action: wait_for
+    pattern: "Add more content"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Check status
+      git status
+      echo "Status shown above"
+      enter
+
+  - action: wait_for
+    pattern: "Status shown above"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Show commit count
+      echo "Total commits: $(git rev-list --count HEAD)"
+      enter
+
+  - action: wait_for
+    pattern: "Total commits: 2"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Cleanup
+      cd /tmp
+      rm -rf bte-git-test
+      exit
+
+invariants:
+  - type: cursor_bounds
+  - type: screen_contains
+    pattern: "Total commits: 2"
+
+seed: 1002
+timeout_ms: 120000

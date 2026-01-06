@@ -1,0 +1,100 @@
+name: "Command failure handling"
+description: "Test behavior when commands fail in various ways"
+command: "bash"
+
+steps:
+  - action: send_keys
+    keys: |
+      echo "=== Test 1: Failed Command Exit Code ==="
+      false
+      echo "Exit code: $?"
+      enter
+
+  - action: wait_for
+    pattern: "Exit code: 1"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 2: Command Not Found ==="
+      this_command_definitely_does_not_exist_12345 2>&1 || echo "Handled: Command not found"
+      enter
+
+  - action: wait_for
+    pattern: "not found|not a command"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 3: Permission Denied ==="
+      touch /tmp/bte_perm_test.sh
+      chmod 000 /tmp/bte_perm_test.sh
+      /tmp/bte_perm_test.sh 2>&1 | head -3 || echo "Permission error handled"
+      chmod 755 /tmp/bte_perm_test.sh
+      rm /tmp/bte_perm_test.sh
+      enter
+
+  - action: wait_for
+    pattern: "Permission|error|denied"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 4: File Not Found for Read ==="
+      cat /tmp/this_file_absolutely_does_not_exist_12345.txt 2>&1 || echo "File not found handled"
+      enter
+
+  - action: wait_for
+    pattern: "not found|No such"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 5: Pipe Failure ==="
+      cat /nonexistent 2>&1 | head || echo "Pipe failure caught"
+      enter
+
+  - action: wait_for
+    pattern: "Pipe|caught"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 6: Subshell Failure ==="
+      (exit 42)
+      echo "Subshell exit code: $?"
+      enter
+
+  - action: wait_for
+    pattern: "Subshell exit code: 42"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 7: Arithmetic Error ==="
+      result=$((1 / 0)) 2>&1 || echo "Division by zero handled"
+      enter
+
+  - action: wait_for
+    pattern: "Division|error|handled"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 8: Conditional Failure ==="
+      if false; then echo "True"; else echo "False branch executed"; fi
+      enter
+
+  - action: wait_for
+    pattern: "False branch executed"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: "exit\n"
+
+invariants:
+  - type: cursor_bounds
+  - type: no_deadlock
+    timeout_ms: 60000
+
+seed: 6002

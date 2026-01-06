@@ -1,0 +1,88 @@
+name: "Output flood test"
+description: "Test handling of massive rapid output"
+command: "bash"
+
+steps:
+  - action: send_keys
+    keys: |
+      echo "=== Test 1: Small Output (1000 lines) ==="
+      for i in $(seq 1 1000); do echo "Line $i"; done | wc -l
+      enter
+
+  - action: wait_for
+    pattern: "1000"
+    timeout_ms: 15000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 2: Medium Output (10000 lines) ==="
+      for i in $(seq 1 10000); do echo "Line $i"; done | tail -1
+      enter
+
+  - action: wait_for
+    pattern: "Line 10000"
+    timeout_ms: 60000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 3: Large File Generation ==="
+      dd if=/dev/urandom of=/tmp/bte_testfile bs=1M count=5 2>&1 | tail -1
+      ls -lh /tmp/bte_testfile | awk '{print "Size:", $5}'
+      rm /tmp/bte_testfile
+      enter
+
+  - action: wait_for
+    pattern: "Size:"
+    timeout_ms: 30000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 4: Parallel Process Output ==="
+      for i in {1..5}; do
+        (for j in {1..100}; do echo "Proc $i:$j"; done) &
+      done
+      wait
+      echo "All 5 processes complete (500 lines total)"
+      enter
+
+  - action: wait_for
+    pattern: "All 5 processes complete"
+    timeout_ms: 60000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 5: Rapid Writes ==="
+      for i in $(seq 1 1000); do
+        echo "Write $i" > /dev/null 2>&1
+      done
+      echo "Completed 1000 rapid writes"
+      enter
+
+  - action: wait_for
+    pattern: "1000 rapid writes"
+    timeout_ms: 30000
+
+  - action: send_keys
+    keys: |
+      echo "=== Test 6: Nested Loop Output ==="
+      for i in {1..10}; do
+        for j in {1..10}; do
+          echo -n "${i}x${j}=$((i*j)) "
+        done
+        echo ""
+      done | tail -3
+      enter
+
+  - action: wait_for
+    pattern: "10x10=100"
+    timeout_ms: 10000
+
+  - action: send_keys
+    keys: "exit\n"
+
+invariants:
+  - type: cursor_bounds
+  - type: no_deadlock
+    timeout_ms: 300000
+
+seed: 5001

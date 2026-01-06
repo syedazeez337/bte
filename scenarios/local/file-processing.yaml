@@ -1,0 +1,83 @@
+name: "File processing pipeline test"
+description: "Test multi-step file processing with grep, sed, and awk"
+command: "bash"
+
+steps:
+  - action: send_keys
+    keys: |
+      # Create test file with 100 lines
+      for i in $(seq 1 100); do echo "Line $i: Data $(head -c 20 /dev/urandom | base64)"; done > /tmp/bte_test_input.txt
+      echo "Created input file with 100 lines"
+      enter
+
+  - action: wait_for
+    pattern: "Created input file"
+    timeout_ms: 10000
+
+  - action: send_keys
+    keys: |
+      # Count lines
+      wc -l /tmp/bte_test_input.txt
+      enter
+
+  - action: wait_for
+    pattern: "100 /tmp/bte_test_input.txt"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Search with grep
+      grep "Line 50" /tmp/bte_test_input.txt
+      enter
+
+  - action: wait_for
+    pattern: "Line 50"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Process with sed - replace Line with ROW
+      sed 's/Line/ROW/' /tmp/bte_test_input.txt | head -5
+      enter
+
+  - action: wait_for
+    pattern: "ROW 1:"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Process with awk - count and sum
+      awk -F: '{count++} END {print "Count:", count}' /tmp/bte_test_input.txt
+      enter
+
+  - action: wait_for
+    pattern: "Count: 100"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Use ripgrep if available
+      rg "Line 7" /tmp/bte_test_input.txt || echo "ripgrep not found, using grep"
+      enter
+
+  - action: wait_for
+    pattern: "Line 70"
+    timeout_ms: 5000
+
+  - action: send_keys
+    keys: |
+      # Cleanup
+      rm /tmp/bte_test_input.txt
+      echo "Cleanup complete"
+      enter
+
+  - action: send_keys
+    keys: "exit\n"
+
+invariants:
+  - type: cursor_bounds
+  - type: screen_contains
+    pattern: "Count: 100"
+
+seed: 1001
+timeout_ms: 60000
