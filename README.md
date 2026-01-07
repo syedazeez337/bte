@@ -1,118 +1,185 @@
-# Behavioral Testing Engine for CLI/TUI Applications
+# Behavioral Testing Engine (BTE)
 
 <div align="center">
 
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
-![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)
-![Tests](https://img.shields.io/badge/tests-200-green.svg)
+[![Crates.io](https://img.shields.io/crates/v/bte?color=orange&logo=rust)](https://crates.io/crates/bte)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust Version](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
+[![CI Status](https://img.shields.io/github/actions/workflow/status/syedazeez337/bte/ci.yml?branch=main&logo=github)](https://github.com/syedazeez337/bte/actions)
+[![Code Coverage](https://img.shields.io/coveralls/github/syedazeez337/bte?logo=coveralls)](https://coveralls.io/github/syedazeez337/bte)
+[![Docs](https://img.shields.io/docsrs/bte?logo=docs.rs)](https://docs.rs/bte)
+[![Downloads](https://img.shields.io/crates/d/bte?logo=crates.io)](https://crates.io/crates/bte)
 
-A deterministic behavioral testing engine for terminal applications with PTY control, replay capabilities, and invariant verification.
+**A deterministic, behavioral testing engine for CLI and TUI applications.**
 
-[Features](#features) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Contributing](#contributing)
+Write once, test everywhere. BTE provides deterministic execution, replay capabilities, and automated invariant verification for terminal applications.
+
+[Features](#features) • [Quick Start](#quick-start) • [Documentation](https://docs.rs/bte) • [Examples](examples/) • [Contributing](#contributing)
 
 </div>
 
-## Overview
+---
 
-BTE (Behavioral Testing Engine) provides a framework for deterministically testing CLI and TUI applications. It:
+## About
 
-- Executes real binaries inside PTY (pseudo-terminal) pairs
-- Captures all terminal output and state changes
-- Supports deterministic replay for debugging
-- Verifies behavioral invariants automatically
+BTE (Behavioral Testing Engine) is a framework for **deterministically testing CLI and TUI applications**. Unlike traditional testing approaches that rely on timeouts and fragile selectors, BTE:
 
-## What's New in v0.2.0
+- 🖥️ Executes real binaries inside pseudo-terminal (PTY) pairs
+- 📊 Captures complete terminal state and output sequences
+- 🎯 Enables deterministic replay for failure investigation
+- ✅ Verifies behavioral invariants automatically
+- 🔒 Includes built-in security scanning for terminal escape sequences
 
-### First-Class Invariants
-- **ResponseTime**: Verify applications respond within expected ticks
-- **MaxLatency**: Ensure maximum latency never exceeds thresholds
-- **ViewportValid**: Check cursor stays within visible viewport
-- **ScreenStability**: Detect screen flickering or instability
-- **ProcessTerminatedCleanly**: Validate clean exit with allowed signals
-- **NoOutputAfterExit**: Prevent output after process exit
+## Why BTE?
 
-### Time-Aware Correctness
-- Tick-based timing instead of wall-clock dependencies
-- Deterministic clock for reproducible test runs
-- Explicit scheduling boundaries for replay
+| Approach | Determinism | Real Terminal | Invariants | Replay | Security |
+|----------|-------------|---------------|------------|--------|----------|
+| **BTE** | ✅ Seeded RNG | ✅ PTY | ✅ 11 built-in | ✅ Full | ✅ Built-in |
+| Selenium/Playwright | ❌ Wall-clock | ❌ Browser | ❌ Limited | ❌ Partial | ❌ Manual |
+| goexpect/pexpect | ⚠️ Limited | ✅ PTY | ❌ Manual | ❌ Manual | ❌ Manual |
+| Unit tests | ❌ Variable | ❌ Mocked | ❌ Manual | ❌ Manual | ❌ Manual |
 
-### Enhanced Trace Format
-- Versioned trace format for forward compatibility
-- Checkpoint support for partial replay
-- RNG state preservation for exact reproduction
+## Use Cases
+
+- **TUI Framework Testing**: Validate `ratatui`, `crossterm`, `tcell` applications
+- **CLI Application Testing**: Test interactive CLI tools with proper terminal emulation
+- **Terminal Emulator Testing**: Verify escape sequence handling and cursor behavior
+- **Regression Testing**: Capture and replay bugs deterministically
+- **Property-Based Testing**: Define invariants that must always hold
 
 ## Features
 
 ### Core Capabilities
-- **PTY Execution**: Real terminal execution, not simulation
-- **Deterministic Execution**: Seeded RNG, monotonic clock, explicit scheduling
-- **ANSI Parsing**: Full escape sequence support including UTF-8
-- **Screen Modeling**: 2D grid with attributes, scrollback, cursor tracking
+
+- **Real PTY Execution**: Native terminal execution, not simulation or mocking
+- **Deterministic Execution**: Seeded RNG, monotonic clock, explicit scheduling boundaries
+- **Full ANSI Support**: Complete escape sequence parsing (CSI, OSC, ESC, UTF-8)
+- **Screen Modeling**: 2D grid with attributes, scrollback buffer, cursor tracking
+- **State Hashing**: FNV-1a hashing for change detection
 
 ### Testing Framework
-- **Scenario Definition**: YAML/JSON declarative interaction format
-- **Invariant Verification**: 
-  - Cursor bounds checking
-  - Deadlock detection with timeouts
-  - Signal handling validation
-  - Screen content assertions (contains/not contains)
-  - **NEW**: Response time and latency constraints
-  - **NEW**: Viewport validity checks
-  - **NEW**: Process termination validation
-  - **NEW**: Screen stability detection
-- **Trace & Replay**: Structured JSON traces for failure reproduction
+
+- **Scenario Definition**: Declarative YAML/JSON format for test interactions
+- **11 Built-in Invariants**:
+  - `cursor_bounds` - Verify cursor stays within screen bounds
+  - `no_deadlock` - Detect application hangs with configurable timeouts
+  - `signal_handled` - Validate proper signal handling
+  - `screen_contains/not_contains` - Content assertions
+  - `screen_changed/stability` - Detect flickering or stuck states
+  - `viewport_valid` - Ensure cursor and scroll positions are valid
+  - `response_time` - Verify applications respond within expected ticks
+  - `max_latency` - Ensure latency never exceeds thresholds
+  - `process_terminated_cleanly` - Validate clean exit with allowed signals
+  - `no_output_after_exit` - Prevent unexpected output post-termination
+- **Trace & Replay**: Structured JSON traces for complete failure reproduction
 - **Signal Injection**: SIGINT, SIGTERM, SIGKILL, SIGWINCH support
 
 ### CLI Interface
-- `bte run` - Execute scenarios and generate traces
-- `bte replay` - Replay traces for debugging
-- `bte validate` - Validate scenario files
-- `bte info` - Inspect trace files
+
+| Command | Description |
+|---------|-------------|
+| `bte run <scenario>` | Execute scenarios and generate traces |
+| `bte replay <trace>` | Replay traces for debugging |
+| `bte validate <file>` | Validate scenario/trace files |
+| `bte info <trace>` | Inspect trace files |
+
+---
 
 ## Quick Start
 
 ### Installation
 
+**From crates.io:**
 ```bash
 cargo install bte
 ```
 
-Or build from source:
-
+**From source:**
 ```bash
 git clone https://github.com/syedazeez337/bte.git
 cd bte
 cargo build --release
 ```
 
-### Basic Usage
+**With Docker:**
+```bash
+docker run --rm ghcr.io/syedazeez337/bte:latest --help
+```
 
-Create a scenario file (`example.yaml`):
+### Basic Example
+
+Create a scenario file (`examples/hello.yaml`):
 
 ```yaml
-name: "hello-world test"
+name: "Hello World Test"
 description: "Test that echo produces expected output"
-command: "echo 'Hello, World!'"
+command: "bash"
 
 steps:
   - action: wait_for
-    pattern: "Hello, World"
+    pattern: "\\$"
+    timeout_ms: 2000
+  
   - action: send_keys
-    keys: "exit\n"
+    keys: ["echo 'Hello, BTE!'", "Enter"]
+  
+  - action: wait_for
+    pattern: "Hello, BTE!"
+    timeout_ms: 2000
 
 invariants:
   - type: cursor_bounds
   - type: no_deadlock
-    timeout_ms: 5000
+    timeout_ticks: 100
+  - type: screen_contains
+    pattern: "Hello, BTE!"
 
 seed: 42
+timeout_ms: 10000
 ```
 
 Run the scenario:
 
 ```bash
-bte run example.yaml
+bte run examples/hello.yaml
 ```
+
+### Programmatic Usage
+
+```rust
+use bte::{runner, scenario, invariants};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load scenario from YAML
+    let yaml = std::fs::read_to_string("test.yaml")?;
+    let scenario = scenario::Scenario::from_yaml(&yaml)?;
+
+    // Configure deterministic execution
+    let config = runner::RunnerConfig {
+        seed: Some(42),
+        trace_path: Some("trace.json".into()),
+        ..Default::default()
+    };
+
+    // Execute with deterministic timing
+    let result = runner::run_scenario(&scenario, &config)?;
+
+    match result.exit_code {
+        0 => println!("✅ Test passed"),
+        -2 => {
+            eprintln!("❌ Invariant violations:");
+            for violation in result.trace.invariant_results.iter().filter(|r| r.violation()) {
+                eprintln!("  - {}", violation.name);
+            }
+        }
+        code => eprintln!("❌ Test failed with code: {}", code),
+    }
+
+    Ok(())
+}
+```
+
+---
 
 ## Documentation
 
@@ -121,204 +188,256 @@ bte run example.yaml
 Scenarios are YAML files defining test interactions:
 
 ```yaml
-name: Test name
-description: What this tests
-command: Command to run
+name: Interactive Editor Test
+description: Test a terminal text editor
+command: "vim"
 
 steps:
-  - action: wait_for       # Wait for pattern in output
-    pattern: "prompt>"
+  # Wait for prompt
+  - action: wait_for
+    pattern: "vim"
     timeout_ms: 5000
-      
-  - action: send_keys      # Send keystrokes
-    keys: "command\n"
-      
-  - action: resize         # Resize terminal
-    cols: 120
-    rows: 40
-      
-  - action: send_signal    # Send signal
-    signal: SIGINT
-        
-  - action: assert_screen  # Assert screen content
-    pattern: "expected text"
-    anywhere: true
-        
-  - action: assert_cursor  # Assert cursor position
-    row: 5
-    col: 10
+  
+  # Enter insert mode
+  - action: send_keys
+    keys: ["i", "Hello from BTE!", "Escape"]
+  
+  # Save and exit
+  - action: send_keys
+    keys: [":", "wq", "Enter"]
+  
+  # Verify output
+  - action: assert_screen
+    pattern: "Hello from BTE!"
 
 invariants:
   - type: cursor_bounds
   - type: no_deadlock
-  - type: screen_contains
-    pattern: "expected"
-  # v0.2.0 invariants:
-  - type: response_time
-    max_ticks: 100
-  - type: max_latency
-    max_ticks: 50
-  - type: viewport_valid
-  - type: screen_stability
-    min_ticks: 10
+    timeout_ticks: 500
   - type: process_terminated_cleanly
-    allowed_signals:
-      - 15
-  - type: no_output_after_exit
+    allowed_signals: [15]
 
-seed: 42
+seed: 12345
 timeout_ms: 30000
 ```
 
-### Key Injection
+### Available Actions
 
-Send special keys:
+| Action | Description | Parameters |
+|--------|-------------|------------|
+| `wait_for` | Wait for pattern in output | `pattern`, `timeout_ms` |
+| `send_keys` | Send keystrokes | `keys` (array of key names) |
+| `resize` | Resize terminal | `cols`, `rows` |
+| `send_signal` | Send POSIX signal | `signal` (SIGINT, SIGTERM, etc.) |
+| `assert_screen` | Assert screen content | `pattern`, `anywhere` |
+| `assert_cursor` | Assert cursor position | `row`, `col` |
+| `checkpoint` | Create replay checkpoint | (none) |
 
-```yaml
-steps:
-  - action: send_keys
-    keys:
-      - Enter
-      - Tab
-      - Backspace
-      - Escape
-      - Up
-      - Down
-      - Left
-      - Right
-      - Ctrl_c
-      - Alt_x
-      - F1
-```
+### Key Names
+
+Special keys are supported:
+- Navigation: `Enter`, `Tab`, `Backspace`, `Escape`
+- Arrows: `Up`, `Down`, `Left`, `Right`
+- Modifiers: `Ctrl_c`, `Alt_x`, `Shift_a`
+- Function: `F1` through `F12`
+- Custom: Any string for direct input
 
 ### Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| -1 | Process signaled |
-| -2 | Invariant violation |
-| -3 | Timeout |
-| -4 | Error |
-| -5 | Replay divergence |
+| Code | Meaning | Description |
+|------|---------|-------------|
+| `0` | Success | All steps completed, invariants passed |
+| `-1` | Signaled | Process terminated by signal |
+| `-2` | Violation | Invariant check failed |
+| `-3` | Timeout | Step timed out |
+| `-4` | Error | Other error occurred |
+| `-5` | Divergence | Replay diverged from trace |
+
+---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   BTE Core                          │
-├─────────────────────────────────────────────────────┤
-│  Determinism Layer                                  │
-│  ├── Monotonic Clock (no wall-clock)               │
-│  ├── Seeded RNG (xorshift64)                       │
-│  └── Scheduler (explicit boundaries)               │
-├─────────────────────────────────────────────────────┤
-│  PTY Layer                                          │
-│  ├── PTY Allocation (nix::pty)                     │
-│  ├── Process Spawn (fork+exec)                     │
-│  ├── Signal Handling (SIGINT/TERM/KILL/WINCH)      │
-│  └── Non-blocking IO (epoll/poll)                  │
-├─────────────────────────────────────────────────────┤
-│  Terminal Model                                     │
-│  ├── ANSI Parser (CSI, OSC, ESC sequences)         │
-│  ├── Screen Grid (2D cells with attributes)        │
-│  ├── Scrollback Buffer                             │
-│  └── State Hashing (FNV-1a)                        │
-├─────────────────────────────────────────────────────┤
-│  Testing Framework                                  │
-│  ├── Scenario Executor                             │
-│  ├── Invariant Engine (v0.2.0: 11 invariants)      │
-│  │   ├── cursor_bounds, no_deadlock, signal_handled │
-│  │   ├── screen_contains, screen_not_contains       │
-│  │   ├── screen_stability, viewport_valid           │
-│  │   ├── response_time, max_latency                 │
-│  │   ├── process_terminated_cleanly                 │
-│  │   └── no_output_after_exit                       │
-│  ├── Trace Recorder (v2 format with checkpoints)   │
-│  └── Replay Engine (deterministic reproduction)    │
-├─────────────────────────────────────────────────────┤
-│  Opinionated Defaults (v0.2.0)                     │
-│  ├── DefaultScenarioTemplate (new, interactive,    │
-│  │   headless, resize_test, performance)            │
-│  ├── DefaultConfigurator (command-aware defaults)  │
-│  └── Timing/Signal suggestions                     │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                        BTE Core                              │
+├─────────────────────────────────────────────────────────────┤
+│  Determinism Layer                                          │
+│  ├── Monotonic Clock (no wall-clock dependencies)          │
+│  ├── Seeded RNG (xorshift64)                               │
+│  └── Scheduler (explicit execution boundaries)             │
+├─────────────────────────────────────────────────────────────┤
+│  PTY Layer                                                  │
+│  ├── PTY Allocation (nix::pty)                             │
+│  ├── Process Spawn (fork+exec)                             │
+│  ├── Signal Handling (SIGINT/TERM/KILL/WINCH)              │
+│  └── Non-blocking IO (epoll/kqueue)                        │
+├─────────────────────────────────────────────────────────────┤
+│  Terminal Model                                             │
+│  ├── ANSI Parser (CSI, OSC, ESC, UTF-8)                    │
+│  ├── Screen Grid (2D cells with attributes)                │
+│  ├── Scrollback Buffer                                     │
+│  └── State Hashing (FNV-1a)                                │
+├─────────────────────────────────────────────────────────────┤
+│  Testing Framework                                          │
+│  ├── Scenario Executor                                     │
+│  ├── Invariant Engine (11 invariants)                      │
+│  ├── Trace Recorder (v2 format with checkpoints)           │
+│  └── Replay Engine (deterministic reproduction)            │
+├─────────────────────────────────────────────────────────────┤
+│  Security Layer                                             │
+│  ├── Escape Sequence Filter (OSC, DCS, ANSI)               │
+│  ├── Command Injection Detection                           │
+│  ├── Privilege Escalation Checks                           │
+│  └── Bounds Verification                                   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## API Usage
+---
+
+## Security
+
+BTE includes built-in security features to safely test untrusted applications:
+
+### Security Invariants
+
+- **EscapeSequenceFilter**: Detects dangerous terminal escape sequences (OSC 0, OSC 52, etc.)
+- **NoCommandInjection**: Blocks shell metacharacters (`; | & $ ( ) { } < >`)
+- **NoPrivilegeEscalation**: Monitors for privilege escalation patterns
+- **BoundsCheckInvariant**: Validates cursor stays within screen bounds
+
+### Safe Regex
+
+Built-in ReDoS protection prevents catastrophic backtracking:
 
 ```rust
-use bte::{runner, scenario, invariants};
+use bte::safe_regex::SafeRegex;
 
-// Load scenario
-let scenario = scenario::Scenario::from_yaml(yaml)?;
-
-// Run with deterministic seed
-let config = runner::RunnerConfig {
-    seed: Some(42),
-    trace_path: Some("trace.json"),
-    ..Default::default()
-};
-
-let result = runner::run_scenario(&scenario, &config);
-
-// Access trace for debugging
-println!("Exit code: {}", result.exit_code);
-println!("Steps: {}", result.trace.steps.len());
-
-// Check invariant violations
-for violation in result.trace.invariant_results.iter().filter(|r| r.violation()) {
-    eprintln!("Invariant violated: {}", violation.name);
-}
+// Creates regex with size limits to prevent ReDoS
+let regex = SafeRegex::with_default_limits(pattern)?;
+let result = regex.is_match(input);
 ```
+
+---
 
 ## Development
 
-### Running Tests
+### Getting Started
 
 ```bash
+# Clone the repository
+git clone https://github.com/syedazeez337/bte.git
+cd bte
+
+# Build
+cargo build
+
+# Run tests
 cargo test
-cargo test --release  # Performance tests
+
+# Run with specific test filter
+cargo test invariant
+
+# Run benchmarks
+cargo bench
+
+# Code quality
+cargo fmt      # Format
+cargo clippy   # Lint
+cargo check    # Type check
 ```
 
-### Building
+### Project Structure
 
-```bash
-cargo build              # Debug build
-cargo build --release    # Optimized build
-cargo build --all-features
+```
+bte/
+├── src/
+│   ├── main.rs           # CLI entry point
+│   ├── lib.rs            # Library root
+│   ├── runner.rs         # Scenario execution engine
+│   ├── scenario.rs       # Scenario parsing/validation
+│   ├── invariants.rs     # Built-in invariants (v1)
+│   ├── invariants_v2.rs  # Built-in invariants (v2)
+│   ├── security.rs       # Security scanning invariants
+│   ├── safe_regex.rs     # ReDoS-protected regex
+│   ├── process.rs        # PTY process management
+│   ├── screen.rs         # Terminal screen model
+│   ├── ansi.rs           # ANSI escape sequence parser
+│   ├── vtparse.rs        # VT parsing state machine
+│   └── ...
+├── examples/             # Example scenarios
+├── tests/                # Integration tests
+├── CHANGELOG.md
+└── Cargo.toml
 ```
 
-### Code Quality
+### Testing Philosophy
 
-```bash
-cargo fmt               # Format code
-cargo clippy            # Lint
-cargo check             # Type check
-cargo bench             # Run benchmarks
-```
+BTE follows deterministic testing principles:
+
+1. **Seed-based reproducibility**: Every run can be reproduced with the same seed
+2. **State inspection**: Full terminal state capture at each step
+3. **Invariant verification**: Properties that must always hold
+4. **Checkpoint-based replay**: Debug failures by replaying specific checkpoints
+
+---
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+### How to Contribute
+
+1. **Fork** the repository
+2. **Create** a feature branch: `git checkout -b feature/amazing-feature`
+3. **Commit** your changes: `git commit -m 'Add amazing feature'`
+4. **Push** to your branch: `git push origin feature/amazing-feature`
+5. **Open** a Pull Request
+
+### Areas for Contribution
+
+- [ ] Additional TUI framework examples
+- [ ] Windows PTY support
+- [ ] More invariant types
+- [ ] Performance optimizations
+- [ ] Documentation improvements
+
+---
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed release history.
+
+### Latest Changes (v0.2.0)
+
+- ✨ **11 Built-in Invariants**: Response time, latency, viewport validity, process termination
+- ✨ **Security Scanning**: Escape sequence and command injection detection
+- ✨ **ReDoS Protection**: Safe regex with size limits
+- ✨ **Deterministic Timing**: Tick-based scheduling without wall-clock dependencies
+- ✨ **Enhanced Traces**: Versioned format with checkpoint support
+
+---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+---
 
 ## Acknowledgments
 
-- [nix](https://docs.rs/nix/) for PTY and signal support
-- [serde](https://serde.rs/) for serialization
-- [clap](https://docs.rs/clap/) for CLI
-- [chrono](https://docs.rs/chrono/) for timestamps
+Built with ❤️ using these excellent projects:
+
+- [nix](https://docs.rs/nix/) - POSIX bindings for PTY and signals
+- [serde](https://serde.rs/) - Serialization framework
+- [clap](https://docs.rs/clap/) - Command-line argument parsing
+- [regex](https://docs.rs/regex/) - Regular expression library
 
 ---
 
 <div align="center">
-Built with ❤️ for deterministic terminal testing
+
+**Built with ❤️ for deterministic terminal testing**
+
+[GitHub](https://github.com/syedazeez337/bte) • [Crates.io](https://crates.io/crates/bte) • [Docs](https://docs.rs/bte)
+
 </div>
