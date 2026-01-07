@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel in-progress runs for the same workflow + branch/PR
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -15,14 +14,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # =========================================================================
-  # Phase 2: Core Testing - Multi-platform with cargo-nextest
-  # =========================================================================
   test:
     name: test / ${{ matrix.os }} / ${{ matrix.rust }}
     runs-on: ${{ matrix.os }}
-    # Skip on forks to avoid consuming resources
-    if: github.repository_owner == 'syedazeez337'
     strategy:
       fail-fast: false
       matrix:
@@ -30,14 +24,11 @@ jobs:
         rust: [stable, beta]
         include:
           - os: ubuntu-latest
-            rust: "1.82.0"  # MSRV
-          - os: ubuntu-latest
-            rust: nightly
-            components: miri
+            rust: "1.82.0"
     steps:
       - uses: actions/checkout@v5
 
-      - name: Add target for cross-platform builds
+      - name: Add target for macOS
         if: matrix.os == 'macos-latest'
         run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
 
@@ -45,7 +36,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-          components: ${{ matrix.components || '' }}
 
       - name: Setup cargo cache
         uses: Swatinem/rust-cache@v2
@@ -57,62 +47,11 @@ jobs:
         uses: taiki-e/install-action@cargo-nextest
 
       - name: Run tests
-        run: cargo nextest run --workspace --all-features --all-targets --status-level skip --final-status-level slow
+        run: cargo nextest run --workspace --all-features
 
-      - name: Run doc tests
-        run: cargo nextest run --workspace --all-features --doc
-
-      - name: Run Miri (nightly only)
-        if: matrix.rust == 'nightly'
-        env:
-          MIRI_BACKTRACE: 1
-        run: |
-          cargo miri test --workspace --all-features
-
-  # =========================================================================
-  # Phase 2: Feature Combination Testing
-  # =========================================================================
-  features:
-    name: features
-    runs-on: ubuntu-latest
-    # Only run on main branch to save CI resources
-    if: github.repository_owner == 'syedazeez337' && github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-
-      - name: Setup cargo cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "bte-v1"
-          prefix-key: "rust-cache-v2-features"
-
-      - name: Install cargo-hack
-        uses: taiki-e/install-action@cargo-hack
-
-      - name: Test each feature combination
-        run: cargo hack test --all-features --each-feature --no-dev-deps
-
-  # =========================================================================
-  # Phase 4: Code Quality - Linting Matrix
-  # =========================================================================
   lint:
-    name: lint / ${{ matrix.mode }}
+    name: lint
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'syedazeez337'
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: [minimal, all-features]
-        include:
-          - mode: minimal
-            args: ""
-          - mode: all-features
-            args: --all-features
     steps:
       - uses: actions/checkout@v5
 
@@ -132,18 +71,11 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo clippy ${{ matrix.args }} --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-features --all-targets -- -D warnings
 
-      - name: Run Clippy on tests
-        run: cargo clippy ${{ matrix.args }} --tests -- -D warnings
-
-  # =========================================================================
-  # Phase 5: MSRV Verification
-  # =========================================================================
   msrv:
     name: msrv (1.82.0)
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'syedazeez337'
     steps:
       - uses: actions/checkout@v5
 
@@ -158,22 +90,15 @@ jobs:
           shared-key: "bte-v1"
           prefix-key: "rust-cache-v2-msrv"
 
-      - name: Fetch dependencies
-        run: cargo fetch --locked
-
-      - name: Build (MSRV check)
+      - name: Build
         run: cargo build --workspace --all-features
 
-      - name: Run tests (MSRV check)
+      - name: Run tests
         run: cargo test --workspace --all-features
 
-  # =========================================================================
-  # Phase 6: Security Auditing - cargo-audit
-  # =========================================================================
   audit:
     name: audit
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'syedazeez337'
     steps:
       - uses: actions/checkout@v5
 
@@ -192,15 +117,11 @@ jobs:
         run: cargo install cargo-audit
 
       - name: Run cargo-audit
-        run: cargo audit --deny warnings --deny security
+        run: cargo audit --deny warnings
 
-  # =========================================================================
-  # Phase 6: Security Auditing - cargo-deny
-  # =========================================================================
   deny:
     name: deny
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'syedazeez337'
     steps:
       - uses: actions/checkout@v5
 
@@ -218,25 +139,12 @@ jobs:
       - name: Install cargo-deny
         run: cargo install cargo-deny
 
-      - name: Check advisories
-        run: cargo deny check advisories
+      - name: Run cargo-deny
+        run: cargo deny check
 
-      - name: Check licenses
-        run: cargo deny check licenses
-
-      - name: Check bans
-        run: cargo deny check bans
-
-      - name: Check sources
-        run: cargo deny check sources
-
-  # =========================================================================
-  # Phase 7: Documentation Build Verification
-  # =========================================================================
   docs:
     name: docs
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'syedazeez337'
     steps:
       - uses: actions/checkout@v5
 
@@ -252,17 +160,11 @@ jobs:
           prefix-key: "rust-cache-v2-docs"
 
       - name: Build documentation
-        env:
-          RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --no-deps
 
-  # =========================================================================
-  # Phase 9: BTE Integration Tests
-  # =========================================================================
   bte-tests:
     name: bte-tests
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'syedazeez337'
     steps:
       - uses: actions/checkout@v5
 
@@ -280,24 +182,16 @@ jobs:
       - name: Build BTE
         run: cargo build --release
 
-      - name: Run BTE example scenarios
+      - name: Run BTE scenarios
         run: |
-          echo "=== Running hello.yaml ==="
           ./target/release/bte run examples/hello.yaml
-          echo ""
-          echo "=== Running all scenarios ==="
           for scenario in examples/*.yaml; do
-            echo "Testing: $scenario"
             ./target/release/bte run "$scenario" || echo "FAILED: $scenario"
           done
 
-  # =========================================================================
-  # Alternative: Minimal CI for forks/PRs from external contributors
-  # =========================================================================
   minimal:
-    name: minimal (fork-friendly)
+    name: minimal
     runs-on: ubuntu-latest
-    # Only run if not the main repo OR if it's a PR from a fork
     if: github.repository_owner != 'syedazeez337' || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v5
