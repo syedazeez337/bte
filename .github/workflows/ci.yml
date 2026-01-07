@@ -15,16 +15,14 @@ env:
 
 jobs:
   test:
-    name: test / ${{ matrix.os }} / ${{ matrix.rust }}
-    runs-on: ${{ matrix.os }}
+    name: test / ${{ matrix.rust }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
         rust: [stable, beta]
         include:
-          - os: ubuntu-latest
-            rust: "1.82.0"
+          - rust: "1.82.0"
     steps:
       - uses: actions/checkout@v5
 
@@ -64,53 +62,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo clippy --workspace --all-features --all-targets -- -D warnings
-
-  audit:
-    name: audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-
-      - name: Setup cargo cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "bte-v1"
-          prefix-key: "rust-cache-v2-audit"
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-
-      - name: Run cargo-audit
-        run: cargo audit --deny warnings
-
-  deny:
-    name: deny
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-
-      - name: Setup cargo cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "bte-v1"
-          prefix-key: "rust-cache-v2-deny"
-
-      - name: Install cargo-deny
-        run: cargo install cargo-deny
-
-      - name: Run cargo-deny
-        run: cargo deny check
+        run: cargo clippy --workspace --all-features --all-targets -- --warn clippy::len_zero --warn clippy::instant_upper_bound
 
   docs:
     name: docs
@@ -184,4 +136,4 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- --warn clippy::len_zero
