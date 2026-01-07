@@ -95,6 +95,9 @@ cargo build --release
 ```
 
 The binary will be at `target/release/bte`.
+```
+
+The binary will be at `target/release/bte`.
 
 **With Docker:**
 
