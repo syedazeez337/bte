@@ -392,7 +392,8 @@ mod tests {
 
         // Should saturate, not overflow
         let nanos = clock.now_nanos();
-        assert!(nanos <= u64::MAX);
+        // Value should be at or very close to u64::MAX after saturation
+        assert!(nanos >= u64::MAX - 1_000_000_000);
     }
 
     #[test]
