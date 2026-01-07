@@ -252,7 +252,9 @@ impl PtyProcess {
 
                 // If execvpe returns, something went wrong - exit with error code 127
                 // This is more graceful than panicking in a child process
-                unsafe { libc::exit(127); }
+                unsafe {
+                    libc::exit(127);
+                }
             }
         }
     }
@@ -345,18 +347,12 @@ impl PtyProcess {
                 self.exit_reason = Some(reason);
                 Ok(reason)
             }
-            WaitStatus::Stopped(_, _) => {
-                self.wait()
-            }
-            WaitStatus::Continued(_) => {
-                self.wait()
-            }
+            WaitStatus::Stopped(_, _) => self.wait(),
+            WaitStatus::Continued(_) => self.wait(),
             WaitStatus::PtraceEvent(_, _, _) | WaitStatus::PtraceSyscall(_) => {
                 Err(ProcessError::UnexpectedPtraceEvent)
             }
-            WaitStatus::StillAlive => {
-                Err(ProcessError::StillRunning)
-            }
+            WaitStatus::StillAlive => Err(ProcessError::StillRunning),
             // WaitStatus is non-exhaustive, handle any remaining variants
             _ => Err(ProcessError::UnexpectedPtraceEvent),
         }

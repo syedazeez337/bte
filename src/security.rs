@@ -4,7 +4,9 @@ fn contains_subsequence(haystack: &[u8], needle: &[u8]) -> bool {
     if needle.is_empty() {
         return false;
     }
-    haystack.windows(needle.len()).any(|window| window == needle)
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +72,10 @@ impl Invariant for EscapeSequenceFilter {
             satisfied,
             self.description(),
             if !satisfied {
-                Some(format!("Dangerous escape sequences detected: {:?}", found_patterns))
+                Some(format!(
+                    "Dangerous escape sequences detected: {:?}",
+                    found_patterns
+                ))
             } else {
                 None
             },
@@ -88,7 +93,9 @@ pub struct NoCommandInjection {
 impl Default for NoCommandInjection {
     fn default() -> Self {
         Self {
-            shell_metacharacters: vec![b';', b'|', b'&', b'`', b'$', b'(', b')', b'{', b'}', b'<', b'>'],
+            shell_metacharacters: vec![
+                b';', b'|', b'&', b'`', b'$', b'(', b')', b'{', b'}', b'<', b'>',
+            ],
         }
     }
 }
@@ -135,7 +142,10 @@ impl Invariant for NoCommandInjection {
             satisfied,
             self.description(),
             if !satisfied {
-                Some(format!("Potential command injection: {:?}", found_injections))
+                Some(format!(
+                    "Potential command injection: {:?}",
+                    found_injections
+                ))
             } else {
                 None
             },
@@ -207,7 +217,10 @@ impl Invariant for NoPrivilegeEscalation {
             satisfied,
             self.description(),
             if !satisfied {
-                Some(format!("Potential privilege escalation: {:?}", found_escalations))
+                Some(format!(
+                    "Potential privilege escalation: {:?}",
+                    found_escalations
+                ))
             } else {
                 None
             },
@@ -290,16 +303,44 @@ impl SecurityScanner {
     pub fn new() -> Self {
         Self {
             dangerous_patterns: vec![
-                (b"\x1b]0;", "Window title manipulation (OSC 0)", SecuritySeverity::Medium),
-                (b"\x1b]52;", "Clipboard access (OSC 52)", SecuritySeverity::High),
-                (b"\x1b[?1049h", "Alternate screen buffer", SecuritySeverity::Low),
+                (
+                    b"\x1b]0;",
+                    "Window title manipulation (OSC 0)",
+                    SecuritySeverity::Medium,
+                ),
+                (
+                    b"\x1b]52;",
+                    "Clipboard access (OSC 52)",
+                    SecuritySeverity::High,
+                ),
+                (
+                    b"\x1b[?1049h",
+                    "Alternate screen buffer",
+                    SecuritySeverity::Low,
+                ),
                 (b"\x1b#8", "DEC alignment test", SecuritySeverity::Low),
                 (b"\x1b(0", "DEC Special Graphics", SecuritySeverity::Low),
-                (b"\x05", "ENQ - terminal identification", SecuritySeverity::Medium),
-                (b"\x1b[c", "Device attributes request", SecuritySeverity::Medium),
+                (
+                    b"\x05",
+                    "ENQ - terminal identification",
+                    SecuritySeverity::Medium,
+                ),
+                (
+                    b"\x1b[c",
+                    "Device attributes request",
+                    SecuritySeverity::Medium,
+                ),
                 (b"\x1b[6n", "Cursor position report", SecuritySeverity::Low),
-                (b"\x1b[?25l", "Hide cursor (potential UI spoofing)", SecuritySeverity::Low),
-                (b"\x1bP", "DCS - Device Control String start", SecuritySeverity::Medium),
+                (
+                    b"\x1b[?25l",
+                    "Hide cursor (potential UI spoofing)",
+                    SecuritySeverity::Low,
+                ),
+                (
+                    b"\x1bP",
+                    "DCS - Device Control String start",
+                    SecuritySeverity::Medium,
+                ),
             ],
         }
     }
@@ -327,7 +368,9 @@ impl SecurityScanner {
             }
         }
 
-        let shell_chars = [b';', b'|', b'&', b'`', b'$', b'(', b')', b'{', b'}', b'<', b'>'];
+        let shell_chars = [
+            b';', b'|', b'&', b'`', b'$', b'(', b')', b'{', b'}', b'<', b'>',
+        ];
         for ch in &shell_chars {
             if input.contains(ch) {
                 issues.push(SecurityIssue::new(
@@ -435,7 +478,9 @@ mod tests {
 
         let issues = scanner.scan(b"\x1b]0;Evil Title\x07");
         assert!(!issues.is_empty());
-        assert!(issues.iter().any(|i| i.description.contains("Window title")));
+        assert!(issues
+            .iter()
+            .any(|i| i.description.contains("Window title")));
 
         let issues = scanner.scan(b"\x1b]52;c;base64data\x07");
         assert!(!issues.is_empty());
@@ -449,7 +494,9 @@ mod tests {
         let scanner = SecurityScanner::new();
 
         let issues = scanner.scan(b"echo hello; rm -rf /");
-        assert!(issues.iter().any(|i| i.description.contains("metacharacter")));
+        assert!(issues
+            .iter()
+            .any(|i| i.description.contains("metacharacter")));
     }
 
     #[test]

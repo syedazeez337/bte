@@ -157,7 +157,10 @@ impl SafeRegexMatcher {
 
     /// Find all matches safely
     pub fn find_all<'t>(&self, pattern: &str, text: &'t str) -> Vec<&'t str> {
-        self.cache.get(pattern).ok().map_or(Vec::new(), |r| r.find_all(text))
+        self.cache
+            .get(pattern)
+            .ok()
+            .map_or(Vec::new(), |r| r.find_all(text))
     }
 
     /// Count matches safely
@@ -178,7 +181,9 @@ pub fn validate_pattern(pattern: &str) -> Result<(), regex::Error> {
         return Err(regex::Error::Syntax("Empty pattern".to_string()));
     }
     if pattern.len() > 10000 {
-        return Err(regex::Error::Syntax("Pattern too long (max 10000 bytes)".to_string()));
+        return Err(regex::Error::Syntax(
+            "Pattern too long (max 10000 bytes)".to_string(),
+        ));
     }
     Regex::new(pattern)?;
     Ok(())
@@ -188,10 +193,10 @@ pub fn validate_pattern(pattern: &str) -> Result<(), regex::Error> {
 /// This is a heuristic and not a guarantee
 pub fn is_potentially_dangerous(pattern: &str) -> bool {
     let dangerous_patterns = [
-        r"\([^)]*\)\+",       // Nested quantifiers like (a+)+
-        r"\[[^\]]*\]\+",      // Character class repetition like [abc]+
-        r"\(\.\|\n\)\+",      // Broad repetition like (.|\n)+
-        r"(\d+\s*)+\d",       // Number repetition like (\d+\s*)+
+        r"\([^)]*\)\+",  // Nested quantifiers like (a+)+
+        r"\[[^\]]*\]\+", // Character class repetition like [abc]+
+        r"\(\.\|\n\)\+", // Broad repetition like (.|\n)+
+        r"(\d+\s*)+\d",  // Number repetition like (\d+\s*)+
     ];
 
     for dangerous in &dangerous_patterns {
