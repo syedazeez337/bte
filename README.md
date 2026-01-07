@@ -96,6 +96,13 @@ cargo build --release
 
 The binary will be at `target/release/bte`.
 
+**With Docker:**
+
+```bash
+docker build -t bte .
+docker run --rm bte --help
+```
+
 ### Basic Example
 
 Create a scenario file (`examples/hello.yaml`):
