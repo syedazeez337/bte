@@ -36,6 +36,12 @@ pub enum ProcessError {
     WaitFailed(nix::Error),
     /// Signal send failed
     SignalFailed(nix::Error),
+    /// Process is still running (unexpected in blocking wait)
+    StillRunning,
+    /// Unexpected ptrace event
+    UnexpectedPtraceEvent,
+    /// Timeout waiting for process
+    Timeout,
 }
 
 impl std::fmt::Display for ProcessError {
@@ -48,9 +54,12 @@ impl std::fmt::Display for ProcessError {
             ProcessError::IoRedirectFailed(e) => write!(f, "IO redirect failed: {}", e),
             ProcessError::InvalidPath(e) => write!(f, "Invalid path: {}", e),
             ProcessError::InvalidArgument(e) => write!(f, "Invalid argument: {}", e),
-            ProcessError::NotRunning => write!(f, "Process not running"),
+            ProcessError::NotRunning => write!(f, "Process is not running"),
             ProcessError::WaitFailed(e) => write!(f, "Wait failed: {}", e),
-            ProcessError::SignalFailed(e) => write!(f, "Signal send failed: {}", e),
+            ProcessError::SignalFailed(e) => write!(f, "Signal failed: {}", e),
+            ProcessError::StillRunning => write!(f, "Process is still running"),
+            ProcessError::UnexpectedPtraceEvent => write!(f, "Unexpected ptrace event"),
+            ProcessError::Timeout => write!(f, "Timeout waiting for process"),
         }
     }
 }
@@ -241,8 +250,9 @@ impl PtyProcess {
 
                 execvpe(&program, &args_ref, &env_ref).map_err(ProcessError::ExecFailed)?;
 
-                // If execvpe returns, something went wrong
-                unreachable!("execvpe returned")
+                // If execvpe returns, something went wrong - exit with error code 127
+                // This is more graceful than panicking in a child process
+                unsafe { libc::exit(127); }
             }
         }
     }
@@ -323,6 +333,7 @@ impl PtyProcess {
             return Ok(reason);
         }
 
+        #[allow(unreachable_patterns)]
         match waitpid(self.pid, None).map_err(ProcessError::WaitFailed)? {
             WaitStatus::Exited(_, code) => {
                 let reason = ExitReason::Exited(code);
@@ -334,10 +345,20 @@ impl PtyProcess {
                 self.exit_reason = Some(reason);
                 Ok(reason)
             }
-            status => {
-                // Handle other statuses
-                panic!("Unexpected wait status: {:?}", status);
+            WaitStatus::Stopped(_, _) => {
+                self.wait()
             }
+            WaitStatus::Continued(_) => {
+                self.wait()
+            }
+            WaitStatus::PtraceEvent(_, _, _) | WaitStatus::PtraceSyscall(_) => {
+                Err(ProcessError::UnexpectedPtraceEvent)
+            }
+            WaitStatus::StillAlive => {
+                Err(ProcessError::StillRunning)
+            }
+            // WaitStatus is non-exhaustive, handle any remaining variants
+            _ => Err(ProcessError::UnexpectedPtraceEvent),
         }
     }
 
