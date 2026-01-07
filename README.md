@@ -4,9 +4,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust Version](https://img.shields.io/badge/rust-1.82+-blue?logo=rust)](https://www.rust-lang.org/)
-[![CI Status](https://img.shields.io/github/actions/workflow/status/syedazeez337/bte/ci.yml?branch=main&logo=github)](https://github.com/syedazeez337/bte/actions)
+[![CI Status](https://img.shields.io/github/actions/workflow/status/syedazeez337/bte/test.yml?branch=main&logo=github)](https://github.com/syedazeez337/bte/actions)
 [![Docs](https://img.shields.io/badge/docs-main-blue?logo=docs)](https://docs.rs/bte)
-[![Build](https://img.shields.io/github/actions/workflow/status/syedazeez337/bte/ci.yml?branch=main)](https://github.com/syedazeez337/bte/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/syedazeez337/bte/test.yml?branch=main)](https://github.com/syedazeez337/bte/actions)
 
 **A deterministic, behavioral testing engine for CLI and TUI applications.**
 
