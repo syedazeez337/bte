@@ -6,6 +6,7 @@
 [![Rust Version](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![CI Status](https://img.shields.io/github/actions/workflow/status/syedazeez337/bte/ci.yml?branch=main&logo=github)](https://github.com/syedazeez337/bte/actions)
 [![Docs](https://img.shields.io/docsrs/bte?logo=docs.rs)](https://docs.rs/bte)
+[![Crates.io](https://img.shields.io/crates/v/bte?logo=crates.io)](https://crates.io/crates/bte)
 
 **A deterministic, behavioral testing engine for CLI and TUI applications.**
 
@@ -14,6 +15,30 @@ Write once, test everywhere. BTE provides deterministic execution, replay capabi
 [Features](#features) • [Quick Start](#quick-start) • [Documentation](https://docs.rs/bte) • [Examples](examples/) • [Contributing](#contributing)
 
 </div>
+
+---
+
+## Table of Contents
+
+- [About](#about)
+- [Features](#features)
+- [Why BTE?](#why-bte)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Command Line](#command-line)
+  - [YAML Scenarios](#yaml-scenarios)
+  - [Programmatic API](#programmatic-api)
+- [Documentation](#documentation)
+  - [Actions](#actions)
+  - [Invariants](#invariants)
+  - [Exit Codes](#exit-codes)
+- [Architecture](#architecture)
+- [Security](#security)
+- [Development](#development)
+- [Contributing](#contributing)
+- [Changelog](#changelog)
+- [License](#license)
 
 ---
 
@@ -27,22 +52,15 @@ BTE (Behavioral Testing Engine) is a framework for **deterministically testing C
 - ✅ Verifies behavioral invariants automatically
 - 🔒 Includes built-in security scanning for terminal escape sequences
 
-## Why BTE?
-
-| Approach | Determinism | Real Terminal | Invariants | Replay | Security |
-|----------|-------------|---------------|------------|--------|----------|
-| **BTE** | ✅ Seeded RNG | ✅ PTY | ✅ 11 built-in | ✅ Full | ✅ Built-in |
-| Selenium/Playwright | ❌ Wall-clock | ❌ Browser | ❌ Limited | ❌ Partial | ❌ Manual |
-| goexpect/pexpect | ⚠️ Limited | ✅ PTY | ❌ Manual | ❌ Manual | ❌ Manual |
-| Unit tests | ❌ Variable | ❌ Mocked | ❌ Manual | ❌ Manual | ❌ Manual |
-
-## Use Cases
+### Use Cases
 
 - **TUI Framework Testing**: Validate `ratatui`, `crossterm`, `tcell` applications
 - **CLI Application Testing**: Test interactive CLI tools with proper terminal emulation
 - **Terminal Emulator Testing**: Verify escape sequence handling and cursor behavior
 - **Regression Testing**: Capture and replay bugs deterministically
 - **Property-Based Testing**: Define invariants that must always hold
+
+---
 
 ## Features
 
@@ -56,37 +74,55 @@ BTE (Behavioral Testing Engine) is a framework for **deterministically testing C
 
 ### Testing Framework
 
-- **Scenario Definition**: Declarative YAML/JSON format for test interactions
-- **11 Built-in Invariants**:
+- **Scenario Definition**: Declarative YAML format for test interactions
+- **Built-in Invariants**:
   - `cursor_bounds` - Verify cursor stays within screen bounds
   - `no_deadlock` - Detect application hangs with configurable timeouts
-  - `signal_handled` - Validate proper signal handling
   - `screen_contains/not_contains` - Content assertions
+  - `signal_handled` - Validate proper signal handling
   - `screen_changed/stability` - Detect flickering or stuck states
   - `viewport_valid` - Ensure cursor and scroll positions are valid
   - `response_time` - Verify applications respond within expected ticks
   - `max_latency` - Ensure latency never exceeds thresholds
-  - `process_terminated_cleanly` - Validate clean exit with allowed signals
-  - `no_output_after_exit` - Prevent unexpected output post-termination
 - **Trace & Replay**: Structured JSON traces for complete failure reproduction
 - **Signal Injection**: SIGINT, SIGTERM, SIGKILL, SIGWINCH support
 
-### CLI Interface
+### CLI Commands
 
 | Command | Description |
 |---------|-------------|
 | `bte run <scenario>` | Execute scenarios and generate traces |
 | `bte replay <trace>` | Replay traces for debugging |
 | `bte validate <file>` | Validate scenario/trace files |
-| `bte info <trace>` | Inspect trace files |
+
+---
+
+## Why BTE?
+
+| Approach | Determinism | Real Terminal | Invariants | Replay | Security |
+|----------|-------------|---------------|------------|--------|----------|
+| **BTE** | ✅ Seeded RNG | ✅ PTY | ✅ Built-in | ✅ Full | ✅ Built-in |
+| Selenium/Playwright | ❌ Wall-clock | ❌ Browser | ❌ Limited | ❌ Partial | ❌ Manual |
+| goexpect/pexpect | ⚠️ Limited | ✅ PTY | ❌ Manual | ❌ Manual | ❌ Manual |
+| Unit tests | ❌ Variable | ❌ Mocked | ❌ Manual | ❌ Manual | ❌ Manual |
 
 ---
 
 ## Quick Start
 
+### Prerequisites
+
+- Rust 1.70 or later
+- A Unix-like operating system (Linux, macOS)
+
+```bash
+# Verify Rust version
+rustc --version  # Must be 1.70+
+```
+
 ### Installation
 
-**Build from source:**
+#### From Source
 
 ```bash
 git clone https://github.com/syedazeez337/bte.git
@@ -94,57 +130,141 @@ cd bte
 cargo build --release
 ```
 
-The binary will be at `target/release/bte`.
-
-**With Docker:**
+The binary will be at `target/release/bte`. Add it to your PATH:
 
 ```bash
-docker build -t bte .
-docker run --rm bte --help
+export PATH="$PATH:$(pwd)/target/release"
+bte --help
 ```
 
-### Basic Example
+#### From Crates.io
 
-Create a scenario file (`examples/hello.yaml`):
+```bash
+cargo install bte
+```
+
+### Your First Test
+
+Create a scenario file:
 
 ```yaml
-name: "Hello World Test"
-description: "Test that echo produces expected output"
-command: "bash"
+# examples/hello.yaml
+name: "hello-world test"
+description: "Simple test that runs echo hello world"
+command: "echo 'Hello, World!'"
 
 steps:
   - action: wait_for
-    pattern: "\\$"
-    timeout_ms: 2000
-  
+    pattern: "Hello, World"
   - action: send_keys
-    keys: ["echo 'Hello, BTE!'", "Enter"]
-  
-  - action: wait_for
-    pattern: "Hello, BTE!"
-    timeout_ms: 2000
+    keys: "exit\n"
 
 invariants:
   - type: cursor_bounds
   - type: no_deadlock
-    timeout_ticks: 100
-  - type: screen_contains
-    pattern: "Hello, BTE!"
+    timeout_ms: 5000
 
 seed: 42
 timeout_ms: 10000
 ```
 
-Run the scenario:
+Run it:
 
 ```bash
 bte run examples/hello.yaml
 ```
 
-### Programmatic Usage
+Expected output:
+
+```
+=== Run Result ===
+Exit code: 0
+Steps executed: 2
+Ticks: 0
+Status: SUCCESS (exit=0, ticks=0)
+```
+
+---
+
+## Usage
+
+### Command Line
+
+```bash
+# Run a scenario
+bte run scenarios/my-test.yaml
+
+# Run with verbose output
+bte -v run scenarios/my-test.yaml
+
+# Replay a trace for debugging
+bte replay traces/trace-123.json
+
+# Validate a scenario file
+bte validate scenarios/my-test.yaml
+```
+
+### YAML Scenarios
+
+Scenarios define test interactions in a declarative YAML format:
+
+```yaml
+name: Interactive Editor Test
+description: Test a terminal text editor
+command: "vim"
+
+steps:
+  # Wait for prompt
+  - action: wait_for
+    pattern: "vim"
+    timeout_ms: 5000
+
+  # Enter insert mode
+  - action: send_keys
+    keys: ["i", "Hello from BTE!", "Escape"]
+
+  # Save and exit
+  - action: send_keys
+    keys: [":", "wq", "Enter"]
+
+  # Verify output
+  - action: assert_screen
+    pattern: "Hello from BTE!"
+
+invariants:
+  - type: cursor_bounds
+  - type: no_deadlock
+    timeout_ticks: 500
+
+seed: 12345
+timeout_ms: 30000
+```
+
+#### Available Actions
+
+| Action | Description | Parameters |
+|--------|-------------|------------|
+| `wait_for` | Wait for pattern in output | `pattern`, `timeout_ms` |
+| `send_keys` | Send keystrokes | `keys` (array or string) |
+| `resize` | Resize terminal | `cols`, `rows` |
+| `send_signal` | Send POSIX signal | `signal` (SIGINT, SIGTERM, etc.) |
+| `assert_screen` | Assert screen content | `pattern`, `anywhere` |
+| `assert_cursor` | Assert cursor position | `row`, `col` |
+| `wait_ticks` | Wait for N ticks | `ticks` |
+
+#### Key Names
+
+Special keys are supported:
+- **Navigation**: `Enter`, `Tab`, `Backspace`, `Escape`
+- **Arrows**: `Up`, `Down`, `Left`, `Right`
+- **Modifiers**: `Ctrl_c`, `Alt_x`, `Shift_a`
+- **Function**: `F1` through `F12`
+- **Custom**: Any string for direct input
+
+### Programmatic API
 
 ```rust
-use bte::{runner, scenario, invariants};
+use bte::{runner, scenario};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load scenario from YAML
@@ -161,83 +281,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Execute with deterministic timing
     let result = runner::run_scenario(&scenario, &config)?;
 
-    match result.exit_code {
-        0 => println!("✅ Test passed"),
-        -2 => {
-            eprintln!("❌ Invariant violations:");
-            for violation in result.trace.invariant_results.iter().filter(|r| r.violation()) {
-                eprintln!("  - {}", violation.name);
+    if result.success {
+        println!("Test passed!");
+    } else {
+        eprintln!("Test failed with exit code: {}", result.exit_code);
+        for violation in &result.trace.invariant_results {
+            if violation.violation() {
+                eprintln!("  - {}: {}", violation.name, violation.message);
             }
         }
-        code => eprintln!("❌ Test failed with code: {}", code),
     }
 
     Ok(())
 }
 ```
 
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+bte = "0.2"
+```
+
 ---
 
 ## Documentation
 
-### Scenario Format
+### Invariants
 
-Scenarios are YAML files defining test interactions:
+Invariants are properties that must always hold during execution:
 
 ```yaml
-name: Interactive Editor Test
-description: Test a terminal text editor
-command: "vim"
-
-steps:
-  # Wait for prompt
-  - action: wait_for
-    pattern: "vim"
-    timeout_ms: 5000
-  
-  # Enter insert mode
-  - action: send_keys
-    keys: ["i", "Hello from BTE!", "Escape"]
-  
-  # Save and exit
-  - action: send_keys
-    keys: [":", "wq", "Enter"]
-  
-  # Verify output
-  - action: assert_screen
-    pattern: "Hello from BTE!"
-
 invariants:
+  # Cursor must stay within screen bounds
   - type: cursor_bounds
+
+  # No deadlock within 100 ticks
   - type: no_deadlock
-    timeout_ticks: 500
-  - type: process_terminated_cleanly
-    allowed_signals: [15]
+    timeout_ticks: 100
 
-seed: 12345
-timeout_ms: 30000
+  # Screen must contain expected text
+  - type: screen_contains
+    pattern: "Expected output"
+
+  # No privilege escalation attempts
+  - type: no_privilege_escalation
 ```
-
-### Available Actions
-
-| Action | Description | Parameters |
-|--------|-------------|------------|
-| `wait_for` | Wait for pattern in output | `pattern`, `timeout_ms` |
-| `send_keys` | Send keystrokes | `keys` (array of key names) |
-| `resize` | Resize terminal | `cols`, `rows` |
-| `send_signal` | Send POSIX signal | `signal` (SIGINT, SIGTERM, etc.) |
-| `assert_screen` | Assert screen content | `pattern`, `anywhere` |
-| `assert_cursor` | Assert cursor position | `row`, `col` |
-| `checkpoint` | Create replay checkpoint | (none) |
-
-### Key Names
-
-Special keys are supported:
-- Navigation: `Enter`, `Tab`, `Backspace`, `Escape`
-- Arrows: `Up`, `Down`, `Left`, `Right`
-- Modifiers: `Ctrl_c`, `Alt_x`, `Shift_a`
-- Function: `F1` through `F12`
-- Custom: Any string for direct input
 
 ### Exit Codes
 
@@ -277,7 +366,7 @@ Special keys are supported:
 ├─────────────────────────────────────────────────────────────┤
 │  Testing Framework                                          │
 │  ├── Scenario Executor                                     │
-│  ├── Invariant Engine (11 invariants)                      │
+│  ├── Invariant Engine                                      │
 │  ├── Trace Recorder (v2 format with checkpoints)           │
 │  └── Replay Engine (deterministic reproduction)            │
 ├─────────────────────────────────────────────────────────────┤
@@ -325,7 +414,7 @@ let result = regex.is_match(input);
 git clone https://github.com/syedazeez337/bte.git
 cd bte
 
-# Build
+# Build in development mode
 cargo build
 
 # Run tests
@@ -334,11 +423,8 @@ cargo test
 # Run with specific test filter
 cargo test invariant
 
-# Run benchmarks
-cargo bench
-
-# Code quality
-cargo fmt      # Format
+# Code quality checks
+cargo fmt      # Format code
 cargo clippy   # Lint
 cargo check    # Type check
 ```
@@ -352,8 +438,7 @@ bte/
 │   ├── lib.rs            # Library root
 │   ├── runner.rs         # Scenario execution engine
 │   ├── scenario.rs       # Scenario parsing/validation
-│   ├── invariants.rs     # Built-in invariants (v1)
-│   ├── invariants_v2.rs  # Built-in invariants (v2)
+│   ├── invariants.rs     # Built-in invariants
 │   ├── security.rs       # Security scanning invariants
 │   ├── safe_regex.rs     # ReDoS-protected regex
 │   ├── process.rs        # PTY process management
@@ -380,7 +465,7 @@ BTE follows deterministic testing principles:
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+Contributions are welcome! Please read our contributing guidelines before submitting PRs.
 
 ### How to Contribute
 
@@ -390,13 +475,11 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 4. **Push** to your branch: `git push origin feature/amazing-feature`
 5. **Open** a Pull Request
 
-### Areas for Contribution
+### Requirements
 
-- [ ] Additional TUI framework examples
-- [ ] Windows PTY support
-- [ ] More invariant types
-- [ ] Performance optimizations
-- [ ] Documentation improvements
+- All tests must pass: `cargo test`
+- Code must be formatted: `cargo fmt`
+- No clippy warnings: `cargo clippy`
 
 ---
 
@@ -406,11 +489,11 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed release history.
 
 ### Latest Changes (v0.2.0)
 
-- ✨ **11 Built-in Invariants**: Response time, latency, viewport validity, process termination
-- ✨ **Security Scanning**: Escape sequence and command injection detection
-- ✨ **ReDoS Protection**: Safe regex with size limits
-- ✨ **Deterministic Timing**: Tick-based scheduling without wall-clock dependencies
-- ✨ **Enhanced Traces**: Versioned format with checkpoint support
+- Built-in invariants for response time, latency, and process termination
+- Security scanning for escape sequences and command injection
+- ReDoS protection with safe regex
+- Deterministic timing with tick-based scheduling
+- Enhanced traces with checkpoint support
 
 ---
 
