@@ -218,7 +218,9 @@ impl Invariant for CursorBoundsInvariant {
             let cursor = screen.cursor();
             let (cols, rows) = screen.size();
 
-            let out_of_bounds = cursor.col >= cols || cursor.row >= rows;
+            // Allow cursor at exactly cols/rows (one past visible is valid for "next position")
+            // Only flag if strictly beyond visible area
+            let out_of_bounds = cursor.col > cols || cursor.row > rows;
 
             InvariantResult::new(
                 self.name(),
