@@ -383,7 +383,7 @@ mod tests {
         // The terminal may echo back the Unicode characters
         // Check that at least part of the Unicode was received
         assert!(
-            output_str.contains("你好") || output_str.contains("🎉") || output.len() > 0,
+            output_str.contains("你好") || output_str.contains("🎉") || !output.is_empty(),
             "Expected Unicode in output, got: {:?}",
             output_str
         );

@@ -1637,8 +1637,8 @@ mod sparse_trace_stress_tests {
         // Simulate PTY output - 1000 chunks of 100 bytes each
         for i in 0..1000 {
             let mut bytes = vec![0u8; 100];
-            for j in 0..100 {
-                bytes[j] = ((i + j) % 256) as u8;
+            for (j, byte) in bytes.iter_mut().enumerate().take(100) {
+                *byte = ((i + j) % 256) as u8;
             }
             builder.record_pty_output(&bytes, i as u64 * 10);
         }

@@ -87,7 +87,8 @@ steps:
 
     let parsed: serde_yaml::Value = serde_yaml::from_str(scenario).expect("Failed to parse");
     let env = parsed["env"].as_mapping().expect("Should have env");
-    assert!(env.contains_key(&serde_yaml::Value::String("TEST_VAR".to_string())));
+    let test_var_key = serde_yaml::Value::String("TEST_VAR".to_string());
+    assert!(env.contains_key(&test_var_key));
 }
 
 #[test]

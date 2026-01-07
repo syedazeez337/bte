@@ -479,7 +479,7 @@ mod tests {
     #[test]
     fn failure_explainer_new() {
         let _explainer = FailureExplainer::new();
-        assert!(true);
+        // Verify it can be created and used
     }
 
     #[test]

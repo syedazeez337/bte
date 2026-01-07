@@ -1,0 +1,86 @@
+# cargo-deny configuration for BTE (Behavioral Testing Engine)
+# https://github.com/EmbarkStudios/cargo-deny
+
+# ============================================================================
+# Security Advisories
+# ============================================================================
+[advisories]
+# URL to the advisory database
+db-urls = ["https://github.com/RustSec/advisory-db.git"]
+
+# Vulnerability handling
+vulnerability = "deny"
+
+# Unmaintained crate handling
+unmaintained = "warn"
+
+# Security notice handling
+notice = "warn"
+
+# Ignore specific advisories (use advisory ID)
+# ignore = ["RUSTSEC-0000-0000"]
+
+# ============================================================================
+# License Configuration
+# ============================================================================
+[licenses]
+# Fail if no license detected
+unlicensed = "deny"
+
+# Allow only these licenses
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 OR MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+]
+
+# Copyleft licenses - deny or warn
+copyleft = "warn"
+
+# License exception handling
+exception-file = "licenses/exceptions.toml"
+
+# Confidence threshold (0.0 - 1.0)
+confidence-threshold = 0.8
+
+# ============================================================================
+# Crate Bans
+# ============================================================================
+[bans]
+# Multiple versions of same crate
+multiple-versions = "warn"
+
+# Skip specific crates (by name + version spec)
+# skip = [
+#     { name = "regex", version = "1.10" },
+# ]
+
+# Deny sources from unknown registries
+unknown = "error"
+
+# Allow git sources
+allow-git = []
+
+# ============================================================================
+# Sources Configuration
+# ============================================================================
+[sources]
+# Unknown registry handling
+unknown = "error"
+
+# Allow specific registries
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+# Allow git sources
+allow-git = [
+    "https://github.com/rust-lang/crates.io-index",
+]
+
+# ============================================================================
+# SPIRE Advisory Database (optional additional source)
+# ============================================================================
+# [advisories.spire]
+# url = "https://github.com/EmbarkStudios/spire-advisories"

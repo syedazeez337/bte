@@ -1,0 +1,123 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Cancel in-progress runs for the same tag
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # =========================================================================
+  # Phase 8: Release Builds
+  # =========================================================================
+  release:
+    name: release / ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            extra-args: ""
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            extra-args: ""
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            extra-args: ""
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            extra-args: ""
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          profile: minimal
+
+      - name: Setup cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "bte-v1"
+          prefix-key: "rust-cache-v2-release"
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} ${{ matrix.extra-args }}
+
+      - name: Run tests (release mode)
+        run: cargo test --release --target ${{ matrix.target }}
+
+      - name: Create artifact
+        name: ${{ matrix.target }}
+        run: |
+          mkdir -p artifacts
+          cp target/${{ matrix.target }}/release/bte artifacts/
+          tar czf artifacts/bte-${{ matrix.target }}.tar.gz -C artifacts bte
+          rm -rf artifacts
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bte-${{ matrix.target }}
+          path: artifacts/bte-${{ matrix.target }}.tar.gz
+
+  # =========================================================================
+  # Create GitHub Release
+  # =========================================================================
+  create-release:
+    name: create-release
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/bte-x86_64-unknown-linux-gnu.tar.gz
+            artifacts/bte-aarch64-unknown-linux-gnu.tar.gz
+            artifacts/bte-x86_64-apple-darwin.tar.gz
+            artifacts/bte-aarch64-apple-darwin.tar.gz
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # =========================================================================
+  # Publish to crates.io (manual - requires CRATES_IO_TOKEN secret)
+  # =========================================================================
+  # Uncomment and add CRATES_IO_TOKEN secret to enable crates.io publishing
+  # crates-io:
+  #   name: crates-io
+  #   runs-on: ubuntu-latest
+  #   needs: release
+  #   steps:
+  #     - uses: actions/checkout@v5
+  #     - name: Install Rust
+  #       uses: dtolnay/rust-toolchain@master
+  #       with:
+  #         toolchain: stable
+  #         profile: minimal
+  #
+  #     - name: Publish to crates.io
+  #       run: |
+  #         cargo login ${{ secrets.CRATES_IO_TOKEN }}
+  #         cargo publish
+  #       env:
+  #         CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}

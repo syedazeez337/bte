@@ -1593,7 +1593,7 @@ mod tests {
             // Bold, colors, underline, etc.
             let attr = format!("\x1b[{}m", (i % 10) + 1);
             screen.process(attr.as_bytes());
-            screen.process(&format!("Styled line {}\n", i).as_bytes());
+            screen.process(format!("Styled line {}\n", i).as_bytes());
         }
 
         let dirty = screen.take_dirty_lines();

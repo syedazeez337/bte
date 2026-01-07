@@ -574,10 +574,10 @@ mod tests {
             .with_max_output_size(10000) // Small buffer
             .with_lossy_mode(true); // Drop data if needed
 
-        let start = std::time::Instant::now();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
 
         // Read with timeout
-        while start.elapsed().as_secs() < 2 {
+        while std::time::Instant::now() < deadline {
             let result = io.tick(&process, 10);
             if result.is_err() {
                 break;

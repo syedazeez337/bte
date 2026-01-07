@@ -403,10 +403,7 @@ fn execute_step(
                 ticks_waited += 1;
 
                 // Debug every 50000 iterations
-                if config.verbose
-                    && ticks_waited.is_multiple_of(50000)
-                    && ticks_waited <= timeout_ticks
-                {
+                if config.verbose && ticks_waited % 50000 == 0 && ticks_waited <= timeout_ticks {
                     eprintln!("[DEBUG] wait_for loop: ticks_waited={}, timeout_ticks={}, pattern_found={}", ticks_waited, timeout_ticks, has_pattern);
                 }
             }
