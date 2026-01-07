@@ -2,13 +2,10 @@
 
 <div align="center">
 
-[![Crates.io](https://img.shields.io/crates/v/bte?color=orange&logo=rust)](https://crates.io/crates/bte)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust Version](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![CI Status](https://img.shields.io/github/actions/workflow/status/syedazeez337/bte/ci.yml?branch=main&logo=github)](https://github.com/syedazeez337/bte/actions)
-[![Code Coverage](https://img.shields.io/coveralls/github/syedazeez337/bte?logo=coveralls)](https://coveralls.io/github/syedazeez337/bte)
 [![Docs](https://img.shields.io/docsrs/bte?logo=docs.rs)](https://docs.rs/bte)
-[![Downloads](https://img.shields.io/crates/d/bte?logo=crates.io)](https://crates.io/crates/bte)
 
 **A deterministic, behavioral testing engine for CLI and TUI applications.**
 
@@ -89,9 +86,21 @@ BTE (Behavioral Testing Engine) is a framework for **deterministically testing C
 
 ### Installation
 
-**From crates.io:**
+**Build from source:**
+
 ```bash
-cargo install bte
+git clone https://github.com/syedazeez337/bte.git
+cd bte
+cargo build --release
+```
+
+The binary will be at `target/release/bte`.
+
+**With Docker:**
+
+```bash
+docker build -t bte .
+docker run --rm bte --help
 ```
 
 **From source:**
@@ -438,6 +447,6 @@ Built with ❤️ using these excellent projects:
 
 **Built with ❤️ for deterministic terminal testing**
 
-[GitHub](https://github.com/syedazeez337/bte) • [Crates.io](https://crates.io/crates/bte) • [Docs](https://docs.rs/bte)
+[GitHub](https://github.com/syedazeez337/bte) • [Docs](https://docs.rs/bte)
 
 </div>
