@@ -771,7 +771,7 @@ mod tests {
         use crate::process::ProcessConfig;
 
         let config = ProcessConfig::shell("sleep 1");
-        let mut process = PtyProcess::spawn(&config).unwrap();
+        let process = PtyProcess::spawn(&config).unwrap();
 
         InvariantContext {
             screen: Some(screen),

@@ -516,7 +516,7 @@ mod tests {
         };
 
         let result = run_scenario(&scenario, &config);
-        assert!(result.exit_code >= 0);
+        assert!(result.success, "Scenario should complete successfully");
         assert_eq!(result.trace.steps.len(), 1);
     }
 
@@ -550,7 +550,7 @@ mod tests {
         };
 
         let result = run_scenario(&scenario, &config);
-        assert!(result.exit_code >= 0);
+        assert!(result.success, "Scenario should complete successfully");
         assert!(!result.trace.invariant_results.is_empty());
     }
 

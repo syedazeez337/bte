@@ -584,7 +584,6 @@ pub fn print_trace_summary(trace: &Trace) {
 mod tests {
     use super::*;
     use crate::determinism::DeterministicScheduler;
-    use crate::process::ProcessConfig;
     use crate::scenario::{Command, TerminalConfig};
     use std::collections::HashMap;
 
@@ -1374,7 +1373,7 @@ pub fn estimate_compression_ratio(sparse: &SparseTrace, full_step_count: usize) 
 #[cfg(test)]
 mod sparse_trace_tests {
     use super::*;
-    use crate::scenario::{Command, Scenario, Step};
+    use crate::scenario::{Command, Scenario};
 
     fn create_test_scenario() -> Scenario {
         Scenario {

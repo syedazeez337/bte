@@ -263,7 +263,7 @@ mod tests {
         use crate::process::ProcessConfig;
 
         let config = ProcessConfig::shell("test");
-        let mut process = PtyProcess::spawn(&config).unwrap();
+        let process = PtyProcess::spawn(&config).unwrap();
         let screen = Screen::new(80, 24);
         InvariantContext {
             screen: Some(Box::leak(Box::new(screen))),

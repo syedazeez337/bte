@@ -932,7 +932,7 @@ mod tests {
         let handler = parser.into_handler();
 
         assert_eq!(handler.csi_dispatches.len(), 1);
-        let (params, final_byte) = &handler.csi_dispatches[0];
+        let (_, final_byte) = &handler.csi_dispatches[0];
         assert_eq!(*final_byte, b'J');
     }
 
