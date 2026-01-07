@@ -574,15 +574,13 @@ mod tests {
             .with_max_output_size(10000) // Small buffer
             .with_lossy_mode(true); // Drop data if needed
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-
-        // Read with timeout
-        while std::time::Instant::now() < deadline {
+        // Read with timeout (max 2 seconds, checking every 10ms)
+        for _ in 0..200 {
             let result = io.tick(&process, 10);
             if result.is_err() {
                 break;
             }
-            thread::sleep(std::time::Duration::from_millis(1));
+            thread::sleep(std::time::Duration::from_millis(10));
         }
 
         // If we get here without hanging, the test passes

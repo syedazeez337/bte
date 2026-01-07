@@ -43,11 +43,8 @@ jobs:
           shared-key: "bte-v1"
           prefix-key: "rust-cache-v2"
 
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@cargo-nextest
-
       - name: Run tests
-        run: cargo nextest run --workspace --all-features
+        run: cargo test --workspace --all-features
 
   lint:
     name: lint

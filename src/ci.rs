@@ -452,7 +452,7 @@ mod tests {
 
         assert_eq!(template.name, "Terminal Tests");
         assert!(template.on.contains(&"push".to_string()));
-        assert!(template.jobs.len() == 1);
+        assert_eq!(template.jobs.len(), 1);
         assert_eq!(template.jobs[0].name, "test");
         assert_eq!(template.jobs[0].runs_on, "ubuntu-latest");
     }
