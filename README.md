@@ -95,28 +95,6 @@ cargo build --release
 ```
 
 The binary will be at `target/release/bte`.
-```
-
-The binary will be at `target/release/bte`.
-
-**With Docker:**
-
-```bash
-docker build -t bte .
-docker run --rm bte --help
-```
-
-**From source:**
-```bash
-git clone https://github.com/syedazeez337/bte.git
-cd bte
-cargo build --release
-```
-
-**With Docker:**
-```bash
-docker run --rm ghcr.io/syedazeez337/bte:latest --help
-```
 
 ### Basic Example
 
