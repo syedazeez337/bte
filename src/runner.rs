@@ -335,7 +335,7 @@ fn execute_step(
     screen: &mut Screen,
     scheduler: &mut DeterministicScheduler,
     timing: &mut TimingController,
-    _config: &RunnerConfig,
+    config: &RunnerConfig,
 ) -> StepResult {
     let keys = KeyInjector::new(process);
 
@@ -350,9 +350,18 @@ fn execute_step(
                 Err(e) => return StepResult::Error(format!("Invalid regex: {}", e)),
             };
 
-            let start_tick = scheduler.now();
+            let mut ticks_waited = 0u64;
+            if config.verbose {
+                eprintln!("[DEBUG] wait_for started: timeout_ticks={}", timeout_ticks);
+            }
             loop {
-                if scheduler.now() - start_tick > timeout_ticks {
+                if ticks_waited > timeout_ticks {
+                    if config.verbose {
+                        let screen_text = screen.text();
+                        eprintln!("[DEBUG] wait_for TIMEOUT: ticks_waited={}, timeout_ticks={}", ticks_waited, timeout_ticks);
+                        eprintln!("[DEBUG] Screen text length: {}, contains 'fn hello': {}", screen_text.len(), screen_text.contains("fn hello"));
+                        eprintln!("[DEBUG] Screen text preview: {:?}", &screen_text[..200.min(screen_text.len())]);
+                    }
                     return StepResult::Error(format!("Timeout waiting for pattern: {}", pattern));
                 }
 
@@ -360,11 +369,23 @@ fn execute_step(
                 let output = io.take_output();
                 screen.process(&output);
 
-                if regex.is_match(&screen.text()) {
+                let screen_text = screen.text();
+                let has_pattern = regex.is_match(&screen_text);
+
+                if has_pattern {
+                    if config.verbose {
+                        eprintln!("[DEBUG] wait_for found pattern after {} ticks", ticks_waited);
+                    }
                     return StepResult::Ok;
                 }
 
                 let _ = timing.wait_ticks(1);
+                ticks_waited += 1;
+                
+                // Debug every 50000 iterations
+                if config.verbose && ticks_waited % 50000 == 0 && ticks_waited <= timeout_ticks {
+                    eprintln!("[DEBUG] wait_for loop: ticks_waited={}, timeout_ticks={}, pattern_found={}", ticks_waited, timeout_ticks, has_pattern);
+                }
             }
         }
 
