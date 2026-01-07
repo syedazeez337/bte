@@ -358,9 +358,23 @@ fn execute_step(
                 if ticks_waited > timeout_ticks {
                     if config.verbose {
                         let screen_text = screen.text();
+                        let preview = if screen_text.len() > 200 {
+                            // Safely truncate to char boundary
+                            let mut end = 200;
+                            while !screen_text.is_char_boundary(end) && end > 0 {
+                                end -= 1;
+                            }
+                            if end > 0 {
+                                format!("{}...", &screen_text[..end])
+                            } else {
+                                "[binary data]".to_string()
+                            }
+                        } else {
+                            screen_text.clone()
+                        };
                         eprintln!("[DEBUG] wait_for TIMEOUT: ticks_waited={}, timeout_ticks={}", ticks_waited, timeout_ticks);
-                        eprintln!("[DEBUG] Screen text length: {}, contains 'fn hello': {}", screen_text.len(), screen_text.contains("fn hello"));
-                        eprintln!("[DEBUG] Screen text preview: {:?}", &screen_text[..200.min(screen_text.len())]);
+                        eprintln!("[DEBUG] Screen text length: {}", screen_text.len());
+                        eprintln!("[DEBUG] Screen text preview: {}", preview);
                     }
                     return StepResult::Error(format!("Timeout waiting for pattern: {}", pattern));
                 }
