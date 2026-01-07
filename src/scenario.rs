@@ -299,7 +299,8 @@ pub enum SignalName {
 
 impl SignalName {
     /// Convert to nix Signal
-    pub fn to_nix_signal(&self) -> nix::sys::signal::Signal {
+    #[allow(clippy::wrong_self_convention)]
+    pub fn to_nix_signal(self) -> nix::sys::signal::Signal {
         use nix::sys::signal::Signal;
         match self {
             SignalName::Sigint => Signal::SIGINT,

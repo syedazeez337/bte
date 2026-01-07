@@ -4,6 +4,8 @@
 //! ReDoS (Regular Expression Denial of Service) attacks using
 //! size limits and input validation.
 
+#![allow(dead_code)]
+
 use regex::Regex;
 use regex::RegexBuilder;
 use std::num::NonZeroUsize;
@@ -36,6 +38,7 @@ impl SafeRegex {
     }
 
     /// Check if the pattern matches (with ReDoS protection)
+    #[must_use]
     pub fn is_match(&self, text: &str) -> bool {
         if text.len() > MAX_INPUT_SIZE {
             return false;
@@ -44,6 +47,7 @@ impl SafeRegex {
     }
 
     /// Find all matches (with ReDoS protection)
+    #[must_use]
     pub fn find_all<'t>(&self, text: &'t str) -> Vec<&'t str> {
         if text.len() > MAX_INPUT_SIZE {
             return Vec::new();
@@ -52,6 +56,7 @@ impl SafeRegex {
     }
 
     /// Count matches (efficient for counting)
+    #[must_use]
     pub fn count(&self, text: &str) -> usize {
         if text.len() > MAX_INPUT_SIZE {
             return 0;
@@ -60,6 +65,7 @@ impl SafeRegex {
     }
 
     /// Check if pattern matches at start
+    #[must_use]
     pub fn is_match_at_start(&self, text: &str) -> bool {
         if text.len() > MAX_INPUT_SIZE {
             return false;
@@ -68,11 +74,13 @@ impl SafeRegex {
     }
 
     /// Get the underlying regex for full access
+    #[must_use]
     pub fn inner(&self) -> &Regex {
         &self.regex
     }
 
     /// Get the size limit
+    #[must_use]
     pub fn size_limit(&self) -> usize {
         self.size_limit
     }
@@ -102,14 +110,31 @@ impl RegexCache {
     }
 
     /// Get or create a safe regex pattern
+    /// Uses double-checked locking to avoid holding the lock during expensive regex compilation
     pub fn get(&self, pattern: &str) -> Result<SafeRegex, regex::Error> {
-        let mut cache = self.cache.lock().unwrap();
-        if let Some(regex) = cache.get(pattern) {
-            return Ok(regex.clone());
+        // First check: try to get from cache with minimal lock time
+        {
+            let mut cache = self.cache.lock().unwrap();
+            if let Some(regex) = cache.get(pattern) {
+                return Ok(regex.clone());
+            }
+        }
+        // Lock released here
+
+        // Compile regex outside the lock (expensive operation)
+        let regex = SafeRegex::new(pattern, self.default_size_limit)?;
+
+        // Second check: insert into cache, but handle race condition
+        {
+            let mut cache = self.cache.lock().unwrap();
+            // Another thread might have inserted while we were compiling
+            if let Some(existing) = cache.get(pattern) {
+                // Use the already-cached version for consistency
+                return Ok(existing.clone());
+            }
+            cache.put(pattern.to_string(), regex.clone());
         }
 
-        let regex = SafeRegex::new(pattern, self.default_size_limit)?;
-        cache.put(pattern.to_string(), regex.clone());
         Ok(regex)
     }
 
@@ -176,6 +201,7 @@ impl Default for SafeRegexMatcher {
 }
 
 /// Validate a regex pattern before use
+#[must_use = "validation result should be checked"]
 pub fn validate_pattern(pattern: &str) -> Result<(), regex::Error> {
     if pattern.is_empty() {
         return Err(regex::Error::Syntax("Empty pattern".to_string()));
@@ -191,6 +217,7 @@ pub fn validate_pattern(pattern: &str) -> Result<(), regex::Error> {
 
 /// Check if a pattern might be vulnerable to ReDoS
 /// This is a heuristic and not a guarantee
+#[must_use]
 pub fn is_potentially_dangerous(pattern: &str) -> bool {
     let dangerous_patterns = [
         r"\([^)]*\)\+",  // Nested quantifiers like (a+)+

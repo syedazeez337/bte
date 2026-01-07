@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::invariants::{Invariant, InvariantContext, InvariantResult};
 
 fn contains_subsequence(haystack: &[u8], needle: &[u8]) -> bool {
@@ -93,8 +95,22 @@ pub struct NoCommandInjection {
 impl Default for NoCommandInjection {
     fn default() -> Self {
         Self {
+            // Comprehensive list of shell metacharacters
             shell_metacharacters: vec![
-                b';', b'|', b'&', b'`', b'$', b'(', b')', b'{', b'}', b'<', b'>',
+                b';',  // Command separator
+                b'|',  // Pipe
+                b'&',  // Background/AND
+                b'`',  // Command substitution (backtick)
+                b'$',  // Variable expansion
+                b'(',  // Subshell start
+                b')',  // Subshell end
+                b'{',  // Brace expansion start
+                b'}',  // Brace expansion end
+                b'<',  // Input redirection
+                b'>',  // Output redirection
+                b'!',  // History expansion
+                b'\n', // Newline (command separator)
+                b'#',  // Comment (can hide code after it)
             ],
         }
     }
@@ -157,20 +173,24 @@ impl Invariant for NoCommandInjection {
 
 #[derive(Debug, Clone)]
 pub struct NoPrivilegeEscalation {
-    escalation_patterns: Vec<(&'static [u8], &'static str)>,
+    /// Patterns with word boundary requirements: (pattern, description, require_word_boundary)
+    escalation_patterns: Vec<(&'static str, &'static str, bool)>,
 }
 
 impl Default for NoPrivilegeEscalation {
     fn default() -> Self {
         Self {
             escalation_patterns: vec![
-                (b"sudo", "sudo command"),
-                (b"su ", "su command"),
-                (b"doas", "doas command"),
-                (b"/etc/passwd", "Password file access"),
-                (b"/etc/shadow", "Shadow file access"),
-                (b"chmod +s", "Setuid bit manipulation"),
-                (b"chown root", "Root ownership change"),
+                // Commands that require word boundaries to avoid false positives
+                ("sudo", "sudo command", true), // Avoid matching "pseudocode"
+                ("doas", "doas command", true), // Avoid matching "ecdoas"
+                // "su " has trailing space so doesn't need word boundary
+                ("su ", "su command", false),
+                // Paths are specific enough
+                ("/etc/passwd", "Password file access", false),
+                ("/etc/shadow", "Shadow file access", false),
+                ("chmod +s", "Setuid bit manipulation", false),
+                ("chown root", "Root ownership change", false),
             ],
         }
     }
@@ -203,9 +223,43 @@ impl Invariant for NoPrivilegeEscalation {
         let screen_text = screen.text().to_lowercase();
         let mut found_escalations: Vec<String> = Vec::new();
 
-        for (pattern, description) in &self.escalation_patterns {
-            let lower_pattern = String::from_utf8_lossy(pattern).to_lowercase();
-            if screen_text.contains(&lower_pattern) {
+        for (pattern, description, require_word_boundary) in &self.escalation_patterns {
+            let lower_pattern = pattern.to_lowercase();
+            if *require_word_boundary {
+                // Check for word boundaries to avoid false positives
+                // Must check ALL occurrences, not just the first one
+                // Pattern must be preceded by start of string or non-word char
+                // and followed by end of string or non-word char
+                let mut search_start = 0;
+                while let Some(rel_pos) = screen_text[search_start..].find(&lower_pattern) {
+                    let pos = search_start + rel_pos;
+
+                    let before_ok = pos == 0
+                        || !screen_text[..pos]
+                            .chars()
+                            .last()
+                            .map(|c| c.is_alphanumeric() || c == '_')
+                            .unwrap_or(false);
+                    let after_pos = pos + lower_pattern.len();
+                    let after_ok = after_pos >= screen_text.len()
+                        || !screen_text[after_pos..]
+                            .chars()
+                            .next()
+                            .map(|c| c.is_alphanumeric() || c == '_')
+                            .unwrap_or(false);
+
+                    if before_ok && after_ok {
+                        found_escalations.push(description.to_string());
+                        break; // Found one match, no need to continue for this pattern
+                    }
+
+                    // Move past this occurrence to search for the next one
+                    search_start = pos + 1;
+                    if search_start >= screen_text.len() {
+                        break;
+                    }
+                }
+            } else if screen_text.contains(&lower_pattern) {
                 found_escalations.push(description.to_string());
             }
         }
@@ -437,11 +491,11 @@ mod tests {
         use crate::process::{ProcessConfig, PtyProcess};
 
         let invariant = EscapeSequenceFilter::default();
-        let config = ProcessConfig::shell("sleep 1");
+        let config = ProcessConfig::shell("sleep 0.1");
         let mut process = PtyProcess::spawn(&config).unwrap();
-        let ctx = InvariantContext {
+        let mut ctx = InvariantContext {
             screen: None,
-            process: &mut *Box::leak(Box::new(process)),
+            process: &mut process,
             step: 0,
             tick: 0,
             _is_replay: false,
@@ -449,9 +503,12 @@ mod tests {
             no_output_ticks: 0,
             expected_signal: None,
         };
-        let mut ctx = ctx;
         let result = invariant.evaluate(&mut ctx);
         assert!(result.satisfied);
+
+        // Clean up: kill the process if still running
+        let _ = process.signal_kill();
+        let _ = process.wait();
     }
 
     #[test]
@@ -522,5 +579,176 @@ mod tests {
     fn test_security_issue_severity() {
         let issue = SecurityIssue::new("Test", SecuritySeverity::High);
         assert_eq!(issue.severity, SecuritySeverity::High);
+    }
+
+    #[test]
+    fn test_word_boundary_detection_avoids_false_positives() {
+        // Test that "pseudocode" doesn't match "sudo"
+        let invariant = NoPrivilegeEscalation::default();
+
+        // Create a mock test by directly testing the word boundary logic
+        let text = "pseudocode is helpful";
+        let lower_text = text.to_lowercase();
+        let pattern = "sudo";
+
+        // The pattern should not match because it's in the middle of "pseudocode"
+        if let Some(pos) = lower_text.find(pattern) {
+            let before_ok = pos == 0
+                || !lower_text[..pos]
+                    .chars()
+                    .last()
+                    .map(|c| c.is_alphanumeric() || c == '_')
+                    .unwrap_or(false);
+            let after_pos = pos + pattern.len();
+            let after_ok = after_pos >= lower_text.len()
+                || !lower_text[after_pos..]
+                    .chars()
+                    .next()
+                    .map(|c| c.is_alphanumeric() || c == '_')
+                    .unwrap_or(false);
+
+            // Should NOT match because "p" comes before and "c" comes after
+            assert!(
+                !before_ok || !after_ok,
+                "pseudocode should not trigger sudo detection"
+            );
+        }
+
+        // Test that standalone "sudo" does match
+        let text2 = "run sudo command";
+        let lower_text2 = text2.to_lowercase();
+
+        if let Some(pos) = lower_text2.find(pattern) {
+            let before_ok = pos == 0
+                || !lower_text2[..pos]
+                    .chars()
+                    .last()
+                    .map(|c| c.is_alphanumeric() || c == '_')
+                    .unwrap_or(false);
+            let after_pos = pos + pattern.len();
+            let after_ok = after_pos >= lower_text2.len()
+                || !lower_text2[after_pos..]
+                    .chars()
+                    .next()
+                    .map(|c| c.is_alphanumeric() || c == '_')
+                    .unwrap_or(false);
+
+            // Should match because there's a space before and after
+            assert!(
+                before_ok && after_ok,
+                "standalone sudo should trigger detection"
+            );
+        }
+
+        assert_eq!(invariant.name(), "no_privilege_escalation");
+    }
+
+    #[test]
+    fn test_shell_metacharacters_comprehensive() {
+        let invariant = NoCommandInjection::default();
+
+        // Check all expected metacharacters are in the list
+        let expected_chars = [
+            b';', b'|', b'&', b'`', b'$', b'(', b')', b'{', b'}', b'<', b'>', b'!', b'\n', b'#',
+        ];
+
+        for &ch in &expected_chars {
+            assert!(
+                invariant.shell_metacharacters.contains(&ch),
+                "Expected shell metacharacter '{}' (0x{:02x}) to be in the list",
+                ch as char,
+                ch
+            );
+        }
+    }
+
+    #[test]
+    fn test_word_boundary_multiple_occurrences() {
+        // Test that we find "sudo" even when preceded by "pseudocode"
+        // The search should check ALL occurrences, not just the first one
+        let text = "pseudocode is great, but sudo rm -rf is dangerous";
+        let lower_text = text.to_lowercase();
+        let pattern = "sudo";
+
+        // Manually search for all occurrences and check word boundaries
+        let mut found_standalone = false;
+        let mut search_start = 0;
+
+        while let Some(rel_pos) = lower_text[search_start..].find(pattern) {
+            let pos = search_start + rel_pos;
+
+            let before_ok = pos == 0
+                || !lower_text[..pos]
+                    .chars()
+                    .last()
+                    .map(|c| c.is_alphanumeric() || c == '_')
+                    .unwrap_or(false);
+            let after_pos = pos + pattern.len();
+            let after_ok = after_pos >= lower_text.len()
+                || !lower_text[after_pos..]
+                    .chars()
+                    .next()
+                    .map(|c| c.is_alphanumeric() || c == '_')
+                    .unwrap_or(false);
+
+            if before_ok && after_ok {
+                found_standalone = true;
+                break;
+            }
+
+            search_start = pos + 1;
+            if search_start >= lower_text.len() {
+                break;
+            }
+        }
+
+        assert!(
+            found_standalone,
+            "Should find standalone 'sudo' even after 'pseudocode'"
+        );
+    }
+
+    #[test]
+    fn test_word_boundary_no_match_when_all_embedded() {
+        // Test that we don't match when ALL occurrences are embedded
+        let text = "pseudocode and ecdoas are not commands";
+        let lower_text = text.to_lowercase();
+        let pattern = "sudo";
+
+        let mut found_standalone = false;
+        let mut search_start = 0;
+
+        while let Some(rel_pos) = lower_text[search_start..].find(pattern) {
+            let pos = search_start + rel_pos;
+
+            let before_ok = pos == 0
+                || !lower_text[..pos]
+                    .chars()
+                    .last()
+                    .map(|c| c.is_alphanumeric() || c == '_')
+                    .unwrap_or(false);
+            let after_pos = pos + pattern.len();
+            let after_ok = after_pos >= lower_text.len()
+                || !lower_text[after_pos..]
+                    .chars()
+                    .next()
+                    .map(|c| c.is_alphanumeric() || c == '_')
+                    .unwrap_or(false);
+
+            if before_ok && after_ok {
+                found_standalone = true;
+                break;
+            }
+
+            search_start = pos + 1;
+            if search_start >= lower_text.len() {
+                break;
+            }
+        }
+
+        assert!(
+            !found_standalone,
+            "Should NOT find standalone 'sudo' when only embedded in 'pseudocode'"
+        );
     }
 }

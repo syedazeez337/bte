@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(clippy::disallowed_types)]
+
 use std::time::{Duration, Instant};
 
 pub struct Benchmark {

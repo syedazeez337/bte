@@ -249,14 +249,10 @@ impl Terminator {
         violations: &[crate::invariants::InvariantResult],
     ) -> TerminationReport {
         let elapsed_ticks = self.clock.now() - self.start_ticks;
-        let runtime_ms = elapsed_ticks * 1; // 1ms per tick
+        let runtime_ms = elapsed_ticks; // 1ms per tick
         let runtime = Duration::from_millis(runtime_ms);
 
-        let ticks_per_second = if self.no_output_ticks > 0 {
-            100.0
-        } else {
-            100.0
-        };
+        let ticks_per_second = 100.0;
 
         let exit_info = self.create_exit_info(process, exit_reason, runtime);
 
@@ -353,6 +349,7 @@ impl Default for Terminator {
 }
 
 /// Create a classification from exit reason
+#[allow(clippy::too_many_arguments)]
 pub fn classify_termination(
     exit_reason: Option<ExitReason>,
     _exit_code: i32,

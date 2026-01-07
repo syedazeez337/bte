@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::process::{Command, Stdio};
 
 pub struct LlmAssistant {
@@ -74,7 +76,7 @@ impl LlmAssistant {
 
     fn call_cli(&self, _prompt: &str) -> Option<String> {
         let output = Command::new("ollama")
-            .args(&["run", &self.model])
+            .args(["run", &self.model])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .output()

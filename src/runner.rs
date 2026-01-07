@@ -333,7 +333,7 @@ fn execute_step(
     process: &mut PtyProcess,
     io: &mut IoLoop,
     screen: &mut Screen,
-    scheduler: &mut DeterministicScheduler,
+    _scheduler: &mut DeterministicScheduler,
     timing: &mut TimingController,
     config: &RunnerConfig,
 ) -> StepResult {
@@ -372,7 +372,10 @@ fn execute_step(
                         } else {
                             screen_text.clone()
                         };
-                        eprintln!("[DEBUG] wait_for TIMEOUT: ticks_waited={}, timeout_ticks={}", ticks_waited, timeout_ticks);
+                        eprintln!(
+                            "[DEBUG] wait_for TIMEOUT: ticks_waited={}, timeout_ticks={}",
+                            ticks_waited, timeout_ticks
+                        );
                         eprintln!("[DEBUG] Screen text length: {}", screen_text.len());
                         eprintln!("[DEBUG] Screen text preview: {}", preview);
                     }
@@ -388,16 +391,22 @@ fn execute_step(
 
                 if has_pattern {
                     if config.verbose {
-                        eprintln!("[DEBUG] wait_for found pattern after {} ticks", ticks_waited);
+                        eprintln!(
+                            "[DEBUG] wait_for found pattern after {} ticks",
+                            ticks_waited
+                        );
                     }
                     return StepResult::Ok;
                 }
 
                 let _ = timing.wait_ticks(1);
                 ticks_waited += 1;
-                
+
                 // Debug every 50000 iterations
-                if config.verbose && ticks_waited % 50000 == 0 && ticks_waited <= timeout_ticks {
+                if config.verbose
+                    && ticks_waited.is_multiple_of(50000)
+                    && ticks_waited <= timeout_ticks
+                {
                     eprintln!("[DEBUG] wait_for loop: ticks_waited={}, timeout_ticks={}, pattern_found={}", ticks_waited, timeout_ticks, has_pattern);
                 }
             }

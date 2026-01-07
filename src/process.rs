@@ -239,8 +239,32 @@ impl PtyProcess {
                 if let Some(ref cwd) = config.cwd {
                     let cwd_cstr =
                         CString::new(cwd.as_bytes()).map_err(ProcessError::InvalidPath)?;
-                    unsafe {
-                        libc::chdir(cwd_cstr.as_ptr());
+                    let ret = unsafe { libc::chdir(cwd_cstr.as_ptr()) };
+                    if ret != 0 {
+                        // Capture errno before any other calls that might change it
+                        let errno = unsafe { *libc::__errno_location() };
+                        let err_msg = match errno {
+                            libc::ENOENT => "No such file or directory",
+                            libc::EACCES => "Permission denied",
+                            libc::ENOTDIR => "Not a directory",
+                            libc::ENAMETOOLONG => "Path name too long",
+                            libc::ELOOP => "Too many symbolic links",
+                            _ => "Unknown error",
+                        };
+                        // Write error to stderr - use write() directly to avoid buffering issues
+                        let msg = format!(
+                            "bte: chdir to '{}' failed: {} (errno {})\n",
+                            cwd, err_msg, errno
+                        );
+                        let _ = unsafe {
+                            libc::write(2, msg.as_ptr() as *const libc::c_void, msg.len())
+                        };
+                        // Use _exit() not exit() - we're in a forked child before exec
+                        // exit() flushes stdio buffers which can cause issues
+                        // Exit code 1 for general error (not 126/127 which are shell-specific)
+                        unsafe {
+                            libc::_exit(1);
+                        }
                     }
                 }
 

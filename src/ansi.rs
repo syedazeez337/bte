@@ -1069,9 +1069,9 @@ impl<'a> crate::vtparse::Handler for AnsiEventHandler<'a> {
             b'>' => AnsiEvent::Esc(EscSequence::NormalKeypad),
             _ => {
                 if intermediates.is_empty() {
-                    if byte >= b'(' && byte <= b'/' {
+                    if (b'('..=b'/').contains(&byte) {
                         AnsiEvent::Esc(EscSequence::DesignateG0(byte - b'(' + b'A'))
-                    } else if byte >= b'0' && byte <= b'7' {
+                    } else if (b'0'..=b'7').contains(&byte) {
                         AnsiEvent::Esc(EscSequence::DesignateG0(byte))
                     } else {
                         AnsiEvent::Esc(EscSequence::Unknown(vec![byte]))

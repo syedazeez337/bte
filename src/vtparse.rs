@@ -6,6 +6,8 @@
 //!
 //! Reference: https://vt100.net/emu/dec_ansi_parser
 
+#![allow(dead_code)]
+
 use std::fmt;
 
 /// Parser state
@@ -601,7 +603,7 @@ impl<H: Handler> Parser<H> {
             0x20..=0x7f => {
                 if byte == b';' && self.osc_params.len() < MAX_OSC {
                     self.osc_params.push(self.osc_buffer.len());
-                } else if byte < 0x20 || byte > 0x7f {
+                } else if !(0x20..=0x7f).contains(&byte) {
                     // Ignore control characters
                 } else {
                     self.osc_buffer.push(byte);
@@ -667,17 +669,15 @@ impl<H: Handler> Parser<H> {
             if let Some(ref mut param) = self.current_param {
                 if byte == b':' {
                     // Colon separator - handle sub-parameters
-                } else if byte >= b'0' && byte <= b'9' {
+                } else if byte.is_ascii_digit() {
                     *param = *param * 10 + (byte - b'0') as i64;
                 }
-            } else {
-                if byte >= b'0' && byte <= b'9' {
-                    self.current_param = Some((byte - b'0') as i64);
-                    self.params[self.num_params] = CsiParam::Integer(self.current_param.unwrap());
-                } else if byte == b':' {
-                    self.current_param = Some(0);
-                    self.params[self.num_params] = CsiParam::ColonList(vec![Some(0)]);
-                }
+            } else if byte.is_ascii_digit() {
+                self.current_param = Some((byte - b'0') as i64);
+                self.params[self.num_params] = CsiParam::Integer(self.current_param.unwrap());
+            } else if byte == b':' {
+                self.current_param = Some(0);
+                self.params[self.num_params] = CsiParam::ColonList(vec![Some(0)]);
             }
         } else {
             self.params_truncated = true;
@@ -708,9 +708,9 @@ impl<H: Handler> Parser<H> {
 
     fn hook(&mut self) {
         let params: Vec<CsiParam> = (0..self.num_params)
-            .filter_map(|i| match self.params[i] {
-                CsiParam::Integer(v) => Some(CsiParam::Integer(v)),
-                CsiParam::ColonList(ref v) => Some(CsiParam::ColonList(v.clone())),
+            .map(|i| match self.params[i] {
+                CsiParam::Integer(v) => CsiParam::Integer(v),
+                CsiParam::ColonList(ref v) => CsiParam::ColonList(v.clone()),
             })
             .collect();
         self.handler.hook(
@@ -786,11 +786,11 @@ impl Utf8Parser {
         self.buffer.push(byte);
 
         // Determine expected continuation bytes
-        if byte >= 0xc0 && byte < 0xe0 {
+        if (0xc0..0xe0).contains(&byte) {
             self.expected = 1;
-        } else if byte >= 0xe0 && byte < 0xf0 {
+        } else if (0xe0..0xf0).contains(&byte) {
             self.expected = 2;
-        } else if byte >= 0xf0 && byte < 0xf8 {
+        } else if (0xf0..0xf8).contains(&byte) {
             self.expected = 3;
         } else {
             self.expected = 0;

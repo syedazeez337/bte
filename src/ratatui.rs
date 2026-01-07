@@ -2,11 +2,9 @@
 //!
 //! This module provides BTE integration for testing ratatui-based TUI applications.
 
-use crate::{
-    invariants::{Invariant, InvariantContext, InvariantResult},
-    process::PtyProcess,
-    screen::Screen,
-};
+#![allow(dead_code)]
+
+use crate::invariants::{Invariant, InvariantContext, InvariantResult};
 
 pub mod invariants {
     use super::*;
@@ -119,7 +117,7 @@ pub mod invariants {
                     self.name(),
                     false,
                     self.description(),
-                    Some(format!("Cursor out of bounds")),
+                    Some("Cursor out of bounds".to_string()),
                     ctx.step,
                     ctx.tick,
                 );
@@ -258,6 +256,8 @@ invariants:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::process::PtyProcess;
+    use crate::screen::Screen;
 
     fn create_mock_ctx() -> InvariantContext<'static> {
         use crate::process::ProcessConfig;

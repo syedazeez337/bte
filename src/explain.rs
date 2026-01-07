@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn failure_explainer_new() {
-        let explainer = FailureExplainer::new();
+        let _explainer = FailureExplainer::new();
         assert!(true);
     }
 

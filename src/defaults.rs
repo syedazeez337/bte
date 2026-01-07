@@ -195,8 +195,8 @@ pub struct DefaultConfigurator;
 
 impl DefaultConfigurator {
     pub fn apply_terminal_defaults(config: &mut TerminalConfig) {
-        config.cols = config.cols.max(40).min(200);
-        config.rows = config.rows.max(10).min(100);
+        config.cols = config.cols.clamp(40, 200);
+        config.rows = config.rows.clamp(10, 100);
     }
 
     pub fn suggest_timing(tick_nanos: u64, scenario_steps: usize) -> TimingDefaults {

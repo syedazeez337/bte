@@ -6,7 +6,7 @@
 #![allow(dead_code)]
 
 use crate::ansi::{AnsiEvent, AnsiParser, CsiSequence, EscSequence};
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 
 /// Simple FNV-1a hasher for deterministic hashing
@@ -219,8 +219,8 @@ impl Row {
 pub struct Screen {
     /// Current visible grid
     grid: Vec<Row>,
-    /// Scrollback buffer
-    scrollback: Vec<Row>,
+    /// Scrollback buffer (VecDeque for O(1) push/pop at both ends)
+    scrollback: VecDeque<Row>,
     /// Maximum scrollback lines
     max_scrollback: usize,
     /// Screen dimensions
@@ -235,7 +235,7 @@ pub struct Screen {
     /// Whether we're in alternate screen mode
     alternate_screen: bool,
     /// Saved primary screen (when in alternate mode)
-    saved_primary: Option<(Vec<Row>, Vec<Row>, Cursor)>,
+    saved_primary: Option<(Vec<Row>, VecDeque<Row>, Cursor)>,
     /// Scroll region (top, bottom)
     scroll_region: (usize, usize),
     /// ANSI parser
@@ -252,7 +252,7 @@ impl Screen {
         let grid = (0..rows).map(|_| Row::new(cols)).collect();
         Self {
             grid,
-            scrollback: Vec::new(),
+            scrollback: VecDeque::new(),
             max_scrollback: 10000,
             cols,
             rows,
@@ -269,11 +269,13 @@ impl Screen {
     }
 
     /// Get screen dimensions
+    #[must_use]
     pub fn size(&self) -> (usize, usize) {
         (self.cols, self.rows)
     }
 
     /// Get cursor position
+    #[must_use]
     pub fn cursor(&self) -> Cursor {
         self.cursor
     }
@@ -291,9 +293,9 @@ impl Screen {
     /// Set maximum scrollback lines
     pub fn set_max_scrollback(&mut self, max: usize) {
         self.max_scrollback = max;
-        // Trim scrollback if needed
+        // Trim scrollback if needed (O(1) pop_front with VecDeque)
         while self.scrollback.len() > self.max_scrollback {
-            self.scrollback.remove(0);
+            self.scrollback.pop_front();
         }
     }
 
@@ -315,9 +317,9 @@ impl Screen {
             // Move removed rows to scrollback
             let removed = self.grid.remove(0);
             if !removed.is_empty() {
-                self.scrollback.push(removed);
+                self.scrollback.push_back(removed);
                 if self.scrollback.len() > self.max_scrollback {
-                    self.scrollback.remove(0);
+                    self.scrollback.pop_front(); // O(1) with VecDeque
                 }
             }
         }
@@ -776,9 +778,9 @@ impl Screen {
                 let removed = self.grid.remove(top);
                 // Add to scrollback if we're scrolling the entire screen
                 if top == 0 && !self.alternate_screen && !removed.is_empty() {
-                    self.scrollback.push(removed);
+                    self.scrollback.push_back(removed);
                     if self.scrollback.len() > self.max_scrollback {
-                        self.scrollback.remove(0);
+                        self.scrollback.pop_front(); // O(1) with VecDeque
                     }
                 }
                 if bottom < self.grid.len() {
@@ -953,6 +955,7 @@ impl Screen {
     /// - Scrollback buffer contents
     /// - Parser state
     /// - Saved cursor position
+    #[must_use]
     pub fn state_hash(&self) -> u64 {
         let mut hasher = FnvHasher::new();
 
@@ -977,6 +980,7 @@ impl Screen {
     /// Compute a hash that includes only the visible text (no attributes).
     ///
     /// Useful for comparing screen content ignoring styling.
+    #[must_use]
     pub fn text_hash(&self) -> u64 {
         let mut hasher = FnvHasher::new();
 
@@ -1692,5 +1696,190 @@ mod tests {
         }
 
         assert!(!dirty.is_empty());
+    }
+
+    // ==================== EDGE CASE TESTS ====================
+
+    #[test]
+    fn zero_size_screen() {
+        let screen = Screen::new(0, 0);
+        assert_eq!(screen.size(), (0, 0));
+        // Should not panic
+        let _ = screen.state_hash();
+        let _ = screen.text_hash();
+        let _ = screen.text();
+    }
+
+    #[test]
+    fn very_long_line_wrapping() {
+        let mut screen = Screen::new(10, 5);
+        let long_line = "A".repeat(100);
+        screen.process(long_line.as_bytes());
+        // Should handle long lines without panicking
+        // Note: In terminal semantics, cursor can be at position `cols` temporarily
+        // (the "wrap position") before the next character triggers a wrap.
+        // This is valid behavior - the cursor is at the position where the NEXT
+        // character will go, which may be past the last column.
+        assert!(
+            screen.cursor().col <= 10,
+            "Cursor col {} should be <= 10 (cols=10)",
+            screen.cursor().col
+        );
+        assert!(
+            screen.cursor().row < 5,
+            "Cursor row {} should be < 5 (rows=5)",
+            screen.cursor().row
+        );
+    }
+
+    #[test]
+    fn scrollback_trim_efficiency() {
+        // Test that scrollback trimming works correctly with VecDeque
+        let mut screen = Screen::new(80, 5);
+        screen.set_max_scrollback(10);
+
+        // Generate many lines to test scrollback trimming
+        for i in 0..100 {
+            screen.process(format!("Line {}\n", i).as_bytes());
+        }
+
+        // Scrollback should be capped at max
+        assert!(
+            screen.scrollback_len() <= 10,
+            "Scrollback should be <= 10, got {}",
+            screen.scrollback_len()
+        );
+    }
+
+    #[test]
+    fn resize_shrink_with_content() {
+        let mut screen = Screen::new(80, 24);
+        for i in 0..30 {
+            screen.process(format!("Line {}\n", i).as_bytes());
+        }
+        screen.resize(40, 10);
+        // Cursor should be within bounds
+        assert!(screen.cursor().row < 10);
+        assert!(screen.cursor().col < 40);
+    }
+
+    #[test]
+    fn resize_to_one_cell() {
+        let mut screen = Screen::new(80, 24);
+        screen.process(b"Hello World");
+        screen.resize(1, 1);
+        assert_eq!(screen.size(), (1, 1));
+        // Should not panic
+        let _ = screen.state_hash();
+    }
+
+    #[test]
+    fn binary_garbage_input() {
+        let mut screen = Screen::new(80, 24);
+        let garbage: Vec<u8> = (0..255).collect();
+        // Should not panic
+        screen.process(&garbage);
+        screen.process(&garbage);
+        screen.process(&garbage);
+        let _ = screen.text();
+        let _ = screen.state_hash();
+    }
+
+    #[test]
+    fn invalid_cursor_position_clamped() {
+        let mut screen = Screen::new(80, 24);
+        // Try to move cursor to absurd position
+        screen.process(b"\x1b[99999;99999H");
+        // Should be clamped to valid bounds
+        assert!(screen.cursor().row < 24);
+        assert!(screen.cursor().col < 80);
+    }
+
+    #[test]
+    fn negative_cursor_movement_clamped() {
+        let mut screen = Screen::new(80, 24);
+        // Move to 0,0 then try to go negative
+        screen.process(b"\x1b[1;1H"); // Move to row 1, col 1 (0-indexed: 0, 0)
+        screen.process(b"\x1b[99999A"); // Up way too much
+        screen.process(b"\x1b[99999D"); // Left way too much
+                                        // Should be clamped at 0,0
+        assert_eq!(screen.cursor().row, 0);
+        assert_eq!(screen.cursor().col, 0);
+    }
+
+    #[test]
+    fn set_max_scrollback_trims_existing() {
+        let mut screen = Screen::new(80, 5);
+        screen.set_max_scrollback(100);
+
+        // Generate scrollback
+        for i in 0..50 {
+            screen.process(format!("Line {}\n", i).as_bytes());
+        }
+        let initial_scrollback = screen.scrollback_len();
+        assert!(initial_scrollback > 0);
+
+        // Reduce max scrollback - should trim
+        screen.set_max_scrollback(5);
+        assert!(
+            screen.scrollback_len() <= 5,
+            "Scrollback should be trimmed to 5, got {}",
+            screen.scrollback_len()
+        );
+    }
+
+    #[test]
+    fn alternate_screen_no_scrollback() {
+        // In alternate screen mode, scrollback should not grow
+        let mut screen = Screen::new(80, 5);
+        screen.set_max_scrollback(100);
+
+        // Switch to alternate screen
+        screen.process(b"\x1b[?1049h");
+        assert!(screen.alternate_screen);
+
+        // Generate lots of output that would normally create scrollback
+        for i in 0..50 {
+            screen.process(format!("Alt line {}\n", i).as_bytes());
+        }
+
+        // Scrollback should be empty in alternate mode
+        assert_eq!(
+            screen.scrollback_len(),
+            0,
+            "Scrollback should be 0 in alternate screen mode"
+        );
+
+        // Switch back to primary
+        screen.process(b"\x1b[?1049l");
+        assert!(!screen.alternate_screen);
+
+        // Scrollback should still be 0 (we were in alternate mode)
+        assert_eq!(screen.scrollback_len(), 0);
+
+        // Now generate output in primary mode
+        for i in 0..50 {
+            screen.process(format!("Primary line {}\n", i).as_bytes());
+        }
+
+        // NOW scrollback should have grown
+        assert!(
+            screen.scrollback_len() > 0,
+            "Scrollback should grow in primary mode"
+        );
+    }
+
+    #[test]
+    fn screen_dimension_validation() {
+        // Test that screen dimensions are stored correctly
+        let screen = Screen::new(80, 24);
+        assert_eq!(screen.size(), (80, 24));
+
+        let screen = Screen::new(1, 1);
+        assert_eq!(screen.size(), (1, 1));
+
+        // Large dimensions
+        let screen = Screen::new(1000, 500);
+        assert_eq!(screen.size(), (1000, 500));
     }
 }

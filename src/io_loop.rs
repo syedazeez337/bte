@@ -17,6 +17,11 @@ const DEFAULT_READ_BUFFER_SIZE: usize = 4096;
 /// Default maximum buffer size before backpressure kicks in
 const DEFAULT_MAX_BUFFER_SIZE: usize = 1024 * 1024; // 1MB
 
+/// Maximum poll timeout supported by the system (u16::MAX milliseconds ≈ 65.5 seconds).
+/// Timeouts larger than this will be capped. Callers needing longer waits should
+/// call poll() in a loop.
+pub const MAX_POLL_TIMEOUT_MS: i32 = u16::MAX as i32;
+
 /// Error type for IO loop operations
 #[derive(Debug)]
 pub enum IoError {
@@ -121,6 +126,18 @@ impl BoundedBuffer {
         &self.data
     }
 
+    /// Get the buffer data as two contiguous slices.
+    ///
+    /// VecDeque is a ring buffer, so data may wrap around. This returns
+    /// (front_slice, back_slice) where front_slice contains the oldest data.
+    /// Either slice may be empty, but concatenating them gives all data in order.
+    ///
+    /// This is more efficient than collecting into a Vec for read-only access.
+    #[must_use]
+    pub fn as_slices(&self) -> (&[u8], &[u8]) {
+        self.data.as_slices()
+    }
+
     /// Get the current buffer length
     pub fn len(&self) -> usize {
         self.data.len()
@@ -210,11 +227,36 @@ impl IoLoop {
         self
     }
 
-    /// Poll the PTY for readiness
+    /// Poll the PTY for readiness.
+    ///
+    /// # Arguments
+    /// * `process` - The PTY process to poll
+    /// * `timeout_ms` - Timeout in milliseconds:
+    ///   - `< 0`: Block indefinitely until ready
+    ///   - `0`: Non-blocking, return immediately
+    ///   - `> 0`: Wait up to this many milliseconds
+    ///
+    /// # Timeout Limitation
+    /// **WARNING:** The maximum supported timeout is [`MAX_POLL_TIMEOUT_MS`] (65535ms ≈ 65.5 seconds).
+    /// Timeouts larger than this are **silently capped** to `MAX_POLL_TIMEOUT_MS`.
+    /// If you need longer waits, call this function in a loop:
+    ///
+    /// ```ignore
+    /// let mut remaining_ms = 120_000; // 2 minutes
+    /// while remaining_ms > 0 {
+    ///     let wait = remaining_ms.min(MAX_POLL_TIMEOUT_MS);
+    ///     let result = io_loop.poll(process, wait)?;
+    ///     if result.readable || result.hangup {
+    ///         break;
+    ///     }
+    ///     remaining_ms -= wait;
+    /// }
+    /// ```
     pub fn poll(&self, process: &PtyProcess, timeout_ms: i32) -> Result<PollResult, IoError> {
         let master_fd = process.pty().master_fd()?;
 
-        // Safety: We're borrowing the fd for the duration of poll
+        // Safety: We're borrowing the fd for the duration of poll.
+        // The fd remains valid because we hold a reference to process.
         let borrowed_fd = unsafe { BorrowedFd::borrow_raw(master_fd) };
 
         let mut poll_flags = PollFlags::POLLIN;
@@ -230,7 +272,10 @@ impl IoLoop {
         } else if timeout_ms == 0 {
             PollTimeout::ZERO // Non-blocking
         } else {
-            PollTimeout::try_from(timeout_ms as u16).unwrap_or(PollTimeout::MAX)
+            // Cap at MAX_POLL_TIMEOUT_MS (65535ms) - PollTimeout only accepts u16
+            // Larger timeouts are silently capped; callers needing longer waits should loop
+            let capped = timeout_ms.min(MAX_POLL_TIMEOUT_MS) as u16;
+            PollTimeout::from(capped)
         };
 
         poll(&mut poll_fds, timeout).map_err(IoError::PollFailed)?;
@@ -275,13 +320,16 @@ impl IoLoop {
         let mut total_written = 0;
 
         while !self.input_buffer.is_empty() {
-            // Get data to write (without consuming yet)
-            let data: Vec<u8> = self.input_buffer.peek().iter().copied().collect();
+            // Get slices without allocation - VecDeque may wrap around
+            let (front, back) = self.input_buffer.as_slices();
+
+            // Write from front slice first (contains oldest data)
+            let data = if !front.is_empty() { front } else { back };
             if data.is_empty() {
                 break;
             }
 
-            match process.write(&data) {
+            match process.write(data) {
                 Ok(0) => break, // Would block
                 Ok(n) => {
                     // Consume the written bytes
@@ -560,6 +608,47 @@ mod tests {
                 poll_result.readable || poll_result.hangup,
                 "Expected readable or hangup after process exit"
             );
+        }
+    }
+
+    #[test]
+    fn bounded_buffer_as_slices() {
+        let mut buf = BoundedBuffer::new(100);
+
+        // Empty buffer should have empty slices
+        let (front, back) = buf.as_slices();
+        assert!(front.is_empty());
+        assert!(back.is_empty());
+
+        // Add some data
+        buf.push(b"hello").unwrap();
+        let (front, back) = buf.as_slices();
+        // Data should be contiguous at first
+        assert_eq!(front, b"hello");
+        assert!(back.is_empty());
+
+        // Consume some and add more to potentially create wrap-around
+        let _ = buf.take(2); // Remove "he"
+        buf.push(b"world").unwrap(); // Add "world"
+
+        let (front, back) = buf.as_slices();
+        // Combined data should be "llo" + "world" = "lloworld"
+        let mut combined = front.to_vec();
+        combined.extend_from_slice(back);
+        assert_eq!(&combined, b"lloworld");
+    }
+
+    #[test]
+    fn bounded_buffer_as_slices_no_allocation() {
+        let mut buf = BoundedBuffer::new(1000);
+
+        // Fill buffer with data
+        buf.push(&vec![b'x'; 500]).unwrap();
+
+        // as_slices should not allocate (just returns views)
+        for _ in 0..1000 {
+            let (front, back) = buf.as_slices();
+            assert_eq!(front.len() + back.len(), 500);
         }
     }
 }

@@ -5,8 +5,9 @@
 //! - Memory exhaustion from large screens
 //! - Process proliferation
 
+#![allow(dead_code)]
+
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct ResourceLimits {
@@ -57,7 +58,6 @@ impl ResourceLimits {
 #[derive(Debug)]
 pub struct ResourceTracker {
     current_trace_bytes: AtomicUsize,
-    current_screen_bytes: AtomicUsize,
     current_output_bytes: AtomicUsize,
     active_processes: AtomicUsize,
     limits: ResourceLimits,
@@ -67,7 +67,6 @@ impl ResourceTracker {
     pub fn new(limits: ResourceLimits) -> Self {
         Self {
             current_trace_bytes: AtomicUsize::new(0),
-            current_screen_bytes: AtomicUsize::new(0),
             current_output_bytes: AtomicUsize::new(0),
             active_processes: AtomicUsize::new(0),
             limits,
