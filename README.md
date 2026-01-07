@@ -3,10 +3,10 @@
 <div align="center">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust Version](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
+[![Rust Version](https://img.shields.io/badge/rust-1.82+-blue?logo=rust)](https://www.rust-lang.org/)
 [![CI Status](https://img.shields.io/github/actions/workflow/status/syedazeez337/bte/ci.yml?branch=main&logo=github)](https://github.com/syedazeez337/bte/actions)
-[![Docs](https://img.shields.io/docsrs/bte?logo=docs.rs)](https://docs.rs/bte)
-[![Crates.io](https://img.shields.io/crates/v/bte?logo=crates.io)](https://crates.io/crates/bte)
+[![Docs](https://img.shields.io/badge/docs-main-blue?logo=docs)](https://docs.rs/bte)
+[![Build](https://img.shields.io/github/actions/workflow/status/syedazeez337/bte/ci.yml?branch=main)](https://github.com/syedazeez337/bte/actions)
 
 **A deterministic, behavioral testing engine for CLI and TUI applications.**
 
@@ -112,12 +112,12 @@ BTE (Behavioral Testing Engine) is a framework for **deterministically testing C
 
 ### Prerequisites
 
-- Rust 1.70 or later
+- Rust 1.82 or later (see [rustup.rs](https://rustup.rs/) for installation)
 - A Unix-like operating system (Linux, macOS)
 
 ```bash
 # Verify Rust version
-rustc --version  # Must be 1.70+
+rustc --version  # Must be 1.82+
 ```
 
 ### Installation
@@ -137,10 +137,14 @@ export PATH="$PATH:$(pwd)/target/release"
 bte --help
 ```
 
-#### From Crates.io
+#### From GitHub Releases
+
+Download the latest binary from the [Releases page](https://github.com/syedazeez337/bte/releases):
 
 ```bash
-cargo install bte
+# Linux x86_64
+curl -L https://github.com/syedazeez337/bte/releases/latest/download/bte-x86_64-unknown-linux-gnu.tar.gz | tar xz
+./bte --help
 ```
 
 ### Your First Test
@@ -300,7 +304,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-bte = "0.2"
+bte = { git = "https://github.com/syedazeez337/bte" }
 ```
 
 ---
