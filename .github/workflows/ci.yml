@@ -33,7 +33,6 @@ jobs:
             rust: "1.82.0"  # MSRV
           - os: ubuntu-latest
             rust: nightly
-            profile: minimal
             components: miri
     steps:
       - uses: actions/checkout@v5
@@ -46,7 +45,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-          profile: ${{ matrix.profile || 'default' }}
           components: ${{ matrix.components || '' }}
 
       - name: Setup cargo cache
@@ -122,7 +120,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-          profile: minimal
           components: clippy, rustfmt
 
       - name: Setup cargo cache
@@ -154,7 +151,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.82.0"
-          profile: minimal
 
       - name: Setup cargo cache
         uses: Swatinem/rust-cache@v2
@@ -185,7 +181,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-          profile: minimal
 
       - name: Setup cargo cache
         uses: Swatinem/rust-cache@v2
@@ -213,7 +208,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-          profile: minimal
 
       - name: Setup cargo cache
         uses: Swatinem/rust-cache@v2
@@ -250,7 +244,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-          profile: minimal
 
       - name: Setup cargo cache
         uses: Swatinem/rust-cache@v2
@@ -277,7 +270,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-          profile: minimal
 
       - name: Setup cargo cache
         uses: Swatinem/rust-cache@v2
@@ -314,7 +306,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-          profile: minimal
 
       - name: Setup cargo cache
         uses: Swatinem/rust-cache@v2
