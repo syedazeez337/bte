@@ -21,8 +21,6 @@ jobs:
       fail-fast: false
       matrix:
         rust: [stable, beta]
-        include:
-          - rust: "1.82.0"
     steps:
       - uses: actions/checkout@v5
 
@@ -137,3 +135,24 @@ jobs:
 
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- --warn clippy::len_zero
+
+  msrv:
+    name: msrv (1.82.0)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust MSRV
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.82.0"
+
+      - name: Setup cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "bte-v1"
+          prefix-key: "rust-cache-v2-msrv"
+
+      - name: Build
+        run: cargo build --workspace --all-features
