@@ -7,33 +7,20 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 mod ansi;
-mod benchmark;
-mod ci;
-mod compat;
-mod defaults;
 mod determinism;
-mod ecma48;
-mod explain;
-mod fuzzing;
 mod invariants;
 mod io_loop;
 mod keys;
-mod limits;
-mod llm;
 mod process;
 mod pty;
-mod ratatui;
 mod replay;
 mod runner;
-mod safe_regex;
 mod scenario;
 mod screen;
-mod security;
 mod termination;
 mod timing;
 mod trace;
 mod vtparse;
-mod wasm;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -89,7 +76,25 @@ enum Command {
     },
 }
 
-fn main() -> Result<()> {
+use std::process::ExitCode;
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(code) => {
+            if code >= 0 && code <= 255 {
+                ExitCode::from(code as u8)
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+        Err(e) => {
+            eprintln!("Error: {:?}", e);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<i32> {
     let args = Args::parse();
 
     let config = runner::RunnerConfig {
@@ -104,9 +109,9 @@ fn main() -> Result<()> {
         Command::Replay {
             trace,
             halt_on_divergence,
-        } => cmd_replay(trace, halt_on_divergence),
-        Command::Validate { scenario } => cmd_validate(scenario),
-        Command::Info { trace } => cmd_info(trace),
+        } => cmd_replay(trace, halt_on_divergence).map(|_| 0),
+        Command::Validate { scenario } => cmd_validate(scenario).map(|_| 0),
+        Command::Info { trace } => cmd_info(trace).map(|_| 0),
     }
 }
 
@@ -114,7 +119,7 @@ fn cmd_run(
     scenario_path: PathBuf,
     output_path: Option<PathBuf>,
     config: &runner::RunnerConfig,
-) -> Result<()> {
+) -> Result<i32> {
     if config.verbose {
         eprintln!("Loading scenario: {}", scenario_path.display());
     }
@@ -244,7 +249,7 @@ fn cmd_run(
         }
     }
 
-    std::process::exit(result.exit_code.max(-1) as i32);
+    Ok(result.exit_code.max(-1))
 }
 
 fn cmd_replay(trace_path: PathBuf, halt_on_divergence: bool) -> Result<()> {

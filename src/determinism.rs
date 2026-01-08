@@ -5,8 +5,6 @@
 //! - Seeded RNG wrapper for reproducible randomness
 //! - Explicit scheduling boundaries
 
-#![allow(dead_code)]
-
 use std::cell::Cell;
 
 /// A monotonic clock that advances deterministically.

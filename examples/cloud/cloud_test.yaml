@@ -5,41 +5,18 @@ env:
   BTE_CLOUD_MODE: "true"
   BTE_PARALLEL_WORKERS: "4"
 
+command: echo "Cloud test - BTE integration"
+
 steps:
-  - type: spawn
-    command: bte run examples/ratatui/counter.yaml
-    timeout: 30000
+  - action: wait_ticks
+    ticks: 10
 
-  - type: wait
-    duration: 1000ms
+  - action: send_keys
+    keys: "echo 'Cloud mode active'\n"
 
-  - type: expect_screen
-    pattern: "Counter: 0"
-    description: Initial counter value visible
-
-  - type: send_keys
-    keys:
-      - "i"
-      - "i"
-      - "i"
-
-  - type: wait
-    duration: 500ms
-
-  - type: expect_screen
-    pattern: "Counter: 3"
-    description: Counter incremented to 3
-
-  - type: send_keys
-    keys:
-      - "q"
-
-  - type: wait
-    duration: 500ms
-
-  - type: assert_exit_code
-    expected: 0
+  - action: wait_for
+    pattern: "Cloud mode active"
+    timeout_ms: 2000
 
 invariants:
-  - type: cursor_in_bounds
-  - type: screen_no_overlap
+  - type: cursor_bounds

@@ -3,8 +3,6 @@
 //! This module provides detailed termination classification for BTE test runs.
 //! Instead of just exit codes, we classify the full termination semantics.
 
-#![allow(dead_code)]
-
 use crate::determinism::DeterministicClock;
 use crate::process::{ExitReason, PtyProcess};
 use serde::{Deserialize, Serialize};

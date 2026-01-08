@@ -3,8 +3,6 @@
 //! This module provides an epoll-based IO loop that handles
 //! reading and writing to the PTY without deadlocks.
 
-#![allow(dead_code)]
-
 use crate::process::{ProcessError, PtyProcess};
 use crate::pty::PtyError;
 use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
@@ -255,8 +253,10 @@ impl IoLoop {
     pub fn poll(&self, process: &PtyProcess, timeout_ms: i32) -> Result<PollResult, IoError> {
         let master_fd = process.pty().master_fd()?;
 
-        // Safety: We're borrowing the fd for the duration of poll.
-        // The fd remains valid because we hold a reference to process.
+        // SAFETY: BorrowedFd::borrow_raw is safe because:
+        // - master_fd is a valid fd from Pty (checked by master_fd()?)
+        // - We hold &process, so the fd remains valid for poll duration
+        // - poll() does not take ownership of the fd
         let borrowed_fd = unsafe { BorrowedFd::borrow_raw(master_fd) };
 
         let mut poll_flags = PollFlags::POLLIN;

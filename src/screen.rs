@@ -3,8 +3,6 @@
 //! This module provides a 2D grid model for terminal memory,
 //! with scrollback buffer, cursor tracking, and dirty line management.
 
-#![allow(dead_code)]
-
 use crate::ansi::{AnsiEvent, AnsiParser, CsiSequence, EscSequence};
 use std::collections::{HashSet, VecDeque};
 use std::hash::{Hash, Hasher};

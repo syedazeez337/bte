@@ -7,8 +7,6 @@
 //! - `AnsiParser`: Original state machine implementation
 //! - `AnsiParserV2`: New implementation using vtparse-based architecture
 
-#![allow(dead_code)]
-
 /// Events produced by the ANSI parser
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnsiEvent {

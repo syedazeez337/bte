@@ -6,8 +6,6 @@
 //!
 //! Reference: https://vt100.net/emu/dec_ansi_parser
 
-#![allow(dead_code)]
-
 use std::fmt;
 
 /// Parser state

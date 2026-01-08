@@ -3,8 +3,6 @@
 //! This module handles forking and executing binaries inside a PTY,
 //! with proper stdio routing and environment isolation.
 
-#![allow(dead_code)]
-
 use crate::pty::{Pty, PtyConfig, PtyError};
 use nix::libc;
 use nix::sys::signal::{kill, Signal};
@@ -12,6 +10,34 @@ use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{close, dup2, execvpe, fork, setsid, ForkResult, Pid};
 use std::collections::HashMap;
 use std::ffi::CString;
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/// Timeout for graceful SIGTERM termination in milliseconds
+const SIGTERM_TIMEOUT_MS: u64 = 500;
+
+/// Polling interval while waiting for process exit in milliseconds
+const POLL_INTERVAL_MS: u64 = 10;
+
+/// Maximum number of EINTR retries before giving up
+const MAX_EINTR_RETRIES: u32 = 10;
+
+/// Default test sleep duration in milliseconds
+const TEST_SLEEP_MS: u64 = 100;
+
+/// Quick test sleep duration in milliseconds
+const QUICK_SLEEP_MS: u64 = 10;
+
+/// Signal probe sleep duration in milliseconds
+const PROBE_SLEEP_MS: u64 = 100;
+
+/// Longer test sleep duration in milliseconds
+const LONG_SLEEP_MS: u64 = 200;
+
+/// Signal test sleep duration in milliseconds
+const SIGNAL_SLEEP_MS: u64 = 50;
 
 /// Error type for process operations
 #[derive(Debug)]
@@ -90,6 +116,8 @@ pub struct ProcessConfig {
 impl ProcessConfig {
     /// Create a new process config for running a shell command
     pub fn shell(command: &str) -> Self {
+        // Using /bin/sh directly - it's POSIX-mandated and always available
+        // This avoids TOCTOU races from checking file existence
         Self {
             program: "/bin/sh".to_string(),
             args: vec!["sh".to_string(), "-c".to_string(), command.to_string()],
@@ -191,6 +219,20 @@ impl PtyProcess {
         let env_vars: Vec<CString> = Self::prepare_environment(&config.env)?;
 
         // Fork
+        //
+        // SAFETY: fork() is a POSIX system call that duplicates the current process.
+        // This is marked unsafe because:
+        // 1. It creates a second concurrently executing thread of control
+        // 2. Only async-signal-safe functions may be called in the child
+        // 3. The child must either exec() or _exit() - it must not return here
+        //
+        // After fork succeeds:
+        // - Parent: returns child PID, continues normally
+        // - Child: returns 0, and must exec() a new program or call _exit()
+        //
+        // We satisfy these requirements by:
+        // - Only calling async-signal-safe functions after fork (setsid, ioctl, dup2, close)
+        // - The child either exec's the target program or calls _exit() on error
         let fork_result = unsafe { fork() }.map_err(ProcessError::ForkFailed)?;
 
         match fork_result {
@@ -216,6 +258,16 @@ impl PtyProcess {
                 let slave_fd = pty.slave_fd().map_err(ProcessError::Pty)?;
 
                 // Set the slave as controlling terminal
+                //
+                // SAFETY: ioctl(TIOCSCTTY) sets the controlling terminal for the process.
+                // This is safe because:
+                // 1. slave_fd is a valid file descriptor from openpty()
+                // 2. We are the session leader (setsid() called above, required by TIOCSCTTY)
+                // 3. The second argument is 0 = don't steal from another session
+                //
+                // Note: We don't check the return value because TIOCSCTTY returns
+                // an error only if the fd is invalid or we're not a session leader,
+                // both of which we've verified.
                 unsafe {
                     libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0);
                 }
@@ -239,9 +291,14 @@ impl PtyProcess {
                 if let Some(ref cwd) = config.cwd {
                     let cwd_cstr =
                         CString::new(cwd.as_bytes()).map_err(ProcessError::InvalidPath)?;
+
+                    // SAFETY: chdir() is async-signal-safe. cwd_cstr is a valid CString
+                    // pointing to a NUL-terminated path. We verified the path earlier.
                     let ret = unsafe { libc::chdir(cwd_cstr.as_ptr()) };
                     if ret != 0 {
                         // Capture errno before any other calls that might change it
+                        // SAFETY: __errno_location() returns a pointer to thread-local errno.
+                        // This is async-signal-safe.
                         let errno = unsafe { *libc::__errno_location() };
                         let err_msg = match errno {
                             libc::ENOENT => "No such file or directory",
@@ -252,6 +309,7 @@ impl PtyProcess {
                             _ => "Unknown error",
                         };
                         // Write error to stderr - use write() directly to avoid buffering issues
+                        // SAFETY: write() to fd 2 (stderr) with validated pointer and length.
                         let msg = format!(
                             "bte: chdir to '{}' failed: {} (errno {})\n",
                             cwd, err_msg, errno
@@ -260,7 +318,9 @@ impl PtyProcess {
                             libc::write(2, msg.as_ptr() as *const libc::c_void, msg.len())
                         };
                         // Use _exit() not exit() - we're in a forked child before exec
-                        // exit() flushes stdio buffers which can cause issues
+                        // SAFETY: _exit() is async-signal-safe and we're in the child process
+                        // after fork but before exec. exit() would flush stdio buffers
+                        // which can cause issues.
                         // Exit code 1 for general error (not 126/127 which are shell-specific)
                         unsafe {
                             libc::_exit(1);
@@ -275,7 +335,9 @@ impl PtyProcess {
                 execvpe(&program, &args_ref, &env_ref).map_err(ProcessError::ExecFailed)?;
 
                 // If execvpe returns, something went wrong - exit with error code 127
-                // This is more graceful than panicking in a child process
+                // SAFETY: exit() terminates the process. We use it here because we're
+                // in the child process after fork but before exec. Exit code 127 is
+                // the standard "command not found" exit code.
                 unsafe {
                     libc::exit(127);
                 }
@@ -459,6 +521,132 @@ impl PtyProcess {
         }
         Ok(())
     }
+
+    /// Gracefully terminate the process and reap it.
+    /// Returns true if the process was terminated, false if it was already dead.
+    fn terminate(&mut self) -> bool {
+        use nix::errno::Errno;
+        use nix::sys::signal::kill;
+        use nix::sys::wait::{waitpid, WaitPidFlag};
+
+        // Check if already exited
+        if self.exit_reason.is_some() {
+            return false;
+        }
+
+        // Try graceful SIGTERM first
+        // Note: We check if delivery succeeded, but process might still ignore it
+        let sigterm_result = kill(self.pid, Signal::SIGTERM);
+        if sigterm_result.is_err() {
+            // Process doesn't exist or we can't send signal - check if already dead
+            match waitpid(self.pid, Some(WaitPidFlag::WNOHANG)) {
+                Ok(WaitStatus::Exited(_, _)) | Ok(WaitStatus::Signaled(_, _, _)) => return true,
+                Ok(WaitStatus::StillAlive) => {
+                    // Signal failed but process is alive - strange but continue
+                }
+                // Handle other WaitStatus variants
+                Ok(WaitStatus::Stopped(_, _))
+                | Ok(WaitStatus::PtraceEvent(_, _, _))
+                | Ok(WaitStatus::PtraceSyscall(_))
+                | Ok(WaitStatus::Continued(_)) => {
+                    // Process is in a special state, treat as alive
+                }
+                Ok(_) => {
+                    // Unknown status, treat as alive
+                }
+                Err(Errno::ECHILD) => return false, // Already reaped
+                Err(_) => return false,             // Other error, give up
+            }
+        }
+
+        // Polling loop with actual timeout
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_millis(SIGTERM_TIMEOUT_MS);
+
+        loop {
+            match waitpid(self.pid, Some(WaitPidFlag::WNOHANG)) {
+                Ok(WaitStatus::Exited(_, _)) | Ok(WaitStatus::Signaled(_, _, _)) => {
+                    // Process exited successfully
+                    return true;
+                }
+                Ok(WaitStatus::StillAlive) => {
+                    if start.elapsed() > timeout {
+                        // Timeout reached, force kill
+                        let sigkill_result = kill(self.pid, Signal::SIGKILL);
+                        if sigkill_result.is_ok() {
+                            // SIGKILL sent, now reap the zombie
+                            // Use WNOHANG again to avoid blocking forever
+                            let mut sigchild_count = 0;
+                            loop {
+                                match waitpid(self.pid, Some(WaitPidFlag::WNOHANG)) {
+                                    Ok(_) | Err(Errno::ECHILD) => {
+                                        // Either reaped or no more children
+                                        break;
+                                    }
+                                    Err(Errno::EINTR) => {
+                                        // Interrupted, retry
+                                        sigchild_count += 1;
+                                        if sigchild_count > MAX_EINTR_RETRIES {
+                                            break; // Give up after max retries
+                                        }
+                                    }
+                                    Err(_) => break, // Other error, give up
+                                }
+                            }
+                        }
+                        return true;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS));
+                }
+                // Handle stopped/traced states - these are temporary, keep waiting
+                Ok(WaitStatus::Stopped(_, _))
+                | Ok(WaitStatus::PtraceEvent(_, _, _))
+                | Ok(WaitStatus::PtraceSyscall(_)) => {
+                    if start.elapsed() > timeout {
+                        // Been stopped too long, force kill
+                        let _ = kill(self.pid, Signal::SIGKILL);
+                        let _ = waitpid(self.pid, None);
+                        return true;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS));
+                }
+                // Unknown status - treat as alive but don't infinite loop
+                Ok(_) => {
+                    if start.elapsed() > timeout {
+                        let _ = kill(self.pid, Signal::SIGKILL);
+                        let _ = waitpid(self.pid, None);
+                        return true;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS));
+                }
+                Err(Errno::ECHILD) => {
+                    // No such child - already reaped
+                    return false;
+                }
+                Err(Errno::EINTR) => {
+                    // Interrupted, retry immediately
+                    continue;
+                }
+                Err(_) => {
+                    // Other error (EPERM, etc.) - give up
+                    return false;
+                }
+            }
+        }
+    }
+}
+
+impl Drop for PtyProcess {
+    fn drop(&mut self) {
+        // Do NOT manage process lifecycle in Drop.
+        // - Sending signals in Drop is unreliable (can't handle errors properly)
+        // - Waiting in Drop can block indefinitely
+        // - Process cleanup should be explicit via terminate() or wait()
+        //
+        // The PTY will be dropped automatically when self.pty is dropped.
+        // If the process is still running, it becomes orphaned and will be
+        // reaped by init/PID 1 when this process exits.
+    }
 }
 
 #[cfg(test)]
@@ -486,7 +674,7 @@ mod tests {
         let process = PtyProcess::spawn(&config).unwrap();
 
         // Give the process time to produce output
-        thread::sleep(std::time::Duration::from_millis(100));
+        thread::sleep(std::time::Duration::from_millis(TEST_SLEEP_MS));
 
         let mut buf = [0u8; 1024];
         let mut output = Vec::new();
@@ -498,7 +686,7 @@ mod tests {
                 Ok(n) => output.extend_from_slice(&buf[..n]),
                 Err(_) => break,
             }
-            thread::sleep(std::time::Duration::from_millis(10));
+            thread::sleep(std::time::Duration::from_millis(QUICK_SLEEP_MS));
         }
 
         let output_str = String::from_utf8_lossy(&output);
@@ -515,7 +703,7 @@ mod tests {
         let process = PtyProcess::spawn(&config).unwrap();
 
         // Give bash time to start
-        thread::sleep(std::time::Duration::from_millis(200));
+        thread::sleep(std::time::Duration::from_millis(LONG_SLEEP_MS));
 
         let mut buf = [0u8; 4096];
         let mut output = Vec::new();
@@ -527,7 +715,7 @@ mod tests {
                 Ok(n) => output.extend_from_slice(&buf[..n]),
                 Err(_) => break,
             }
-            thread::sleep(std::time::Duration::from_millis(50));
+            thread::sleep(std::time::Duration::from_millis(SIGNAL_SLEEP_MS));
         }
 
         let output_str = String::from_utf8_lossy(&output);
@@ -562,13 +750,13 @@ mod tests {
         let process = PtyProcess::spawn(&config).unwrap();
 
         // Give cat time to start
-        thread::sleep(std::time::Duration::from_millis(100));
+        thread::sleep(std::time::Duration::from_millis(TEST_SLEEP_MS));
 
         // Write some data
         process.write_all(b"test input\n").unwrap();
 
         // Give time for echo
-        thread::sleep(std::time::Duration::from_millis(100));
+        thread::sleep(std::time::Duration::from_millis(TEST_SLEEP_MS));
 
         // Read output
         let mut buf = [0u8; 1024];
@@ -596,7 +784,7 @@ mod tests {
         let mut process = PtyProcess::spawn(&config).unwrap();
 
         // Give it time to start
-        thread::sleep(std::time::Duration::from_millis(100));
+        thread::sleep(std::time::Duration::from_millis(TEST_SLEEP_MS));
 
         // Send SIGINT
         process.signal_int().unwrap();
@@ -618,7 +806,7 @@ mod tests {
         let config = ProcessConfig::shell("sleep 60");
         let mut process = PtyProcess::spawn(&config).unwrap();
 
-        thread::sleep(std::time::Duration::from_millis(100));
+        thread::sleep(std::time::Duration::from_millis(TEST_SLEEP_MS));
 
         process.signal_term().unwrap();
 
@@ -637,7 +825,7 @@ mod tests {
         let config = ProcessConfig::shell("sleep 60");
         let mut process = PtyProcess::spawn(&config).unwrap();
 
-        thread::sleep(std::time::Duration::from_millis(100));
+        thread::sleep(std::time::Duration::from_millis(TEST_SLEEP_MS));
 
         process.signal_kill().unwrap();
 
@@ -662,7 +850,7 @@ mod tests {
         let mut process = PtyProcess::spawn(&config).unwrap();
 
         // Give it time to start
-        thread::sleep(std::time::Duration::from_millis(100));
+        thread::sleep(std::time::Duration::from_millis(TEST_SLEEP_MS));
 
         // Verify initial size
         assert_eq!(process.pty().size(), (80, 24));
@@ -685,7 +873,7 @@ mod tests {
         let config = ProcessConfig::shell("sleep 60");
         let mut process = PtyProcess::spawn(&config).unwrap();
 
-        thread::sleep(std::time::Duration::from_millis(100));
+        thread::sleep(std::time::Duration::from_millis(TEST_SLEEP_MS));
 
         assert!(process.exit_reason().is_none());
         assert!(!process.has_exited());
@@ -700,5 +888,62 @@ mod tests {
             ExitReason::Signaled(_) => {}
             other => panic!("Expected Signaled, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn drop_does_not_manage_process() {
+        // Test that Drop does NOT send signals or manage process lifecycle
+        // Process cleanup must be explicit via terminate() or wait()
+        let config = ProcessConfig::shell("sleep 60");
+        let pid = {
+            let process = PtyProcess::spawn(&config).unwrap();
+            let pid = process.pid_raw();
+            assert!(pid > 0);
+            pid
+        };
+        // Process is now dropped - Drop should NOT send any signals
+        // The process is now orphaned and will be reaped by init/PID 1
+
+        // Process should still be running (Drop doesn't kill it)
+        // SAFETY: kill(pid, 0) is a probe that checks if process exists without sending signal.
+        // It's safe because we're just checking process liveness.
+        let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+        assert_eq!(result, 0, "Process should still be running after drop");
+
+        // Clean up explicitly (in real code, caller should do this)
+        let mut process = PtyProcess::spawn(&config).unwrap();
+        let terminated = process.terminate();
+        assert!(
+            terminated,
+            "terminate() should successfully kill the process"
+        );
+    }
+
+    #[test]
+    fn drop_does_not_double_wait() {
+        // Test that dropping a process that was already waited on doesn't crash
+        let config = ProcessConfig::shell("sleep 0.01");
+        let mut process = PtyProcess::spawn(&config).unwrap();
+
+        // Wait for process to exit naturally
+        let reason = process.wait().unwrap();
+        assert!(matches!(reason, ExitReason::Exited(_)));
+
+        // Drop should not crash or cause issues
+        drop(process);
+    }
+
+    #[test]
+    fn terminate_handles_already_reaped_process() {
+        // Test that terminate() handles ECHILD gracefully
+        let config = ProcessConfig::shell("echo hello");
+        let mut process = PtyProcess::spawn(&config).unwrap();
+
+        // Wait for process to exit
+        let _ = process.wait().unwrap();
+
+        // terminate() should return false without panicking
+        let result = process.terminate();
+        assert!(!result);
     }
 }

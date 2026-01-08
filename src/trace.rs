@@ -3,8 +3,6 @@
 //! This module provides the trace schema, serialization logic, and replay capabilities
 //! for deterministic reproduction of test runs.
 
-#![allow(dead_code)]
-
 use crate::determinism::DeterministicScheduler;
 use crate::invariants::InvariantResult;
 use crate::scenario::{Scenario, Step};
@@ -266,6 +264,16 @@ impl TraceBuilder {
     /// Get all checkpoints
     pub fn checkpoints(&self) -> &[TraceCheckpoint] {
         &self.trace.checkpoints
+    }
+
+    /// Build a trace with an error outcome (for early returns)
+    pub fn build_error(&self, message: String) -> Trace {
+        let mut trace = self.trace.clone();
+        trace.outcome = TraceOutcome::Error {
+            message,
+            step_index: 0,
+        };
+        trace
     }
 
     /// Build the final trace
@@ -755,6 +763,31 @@ mod tests {
 
         // Clean up
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn trace_builder_build_error() {
+        let scenario = create_test_scenario();
+        let builder = TraceBuilder::new(scenario, 42);
+
+        let error_msg = "Test error message".to_string();
+        let trace = builder.build_error(error_msg.clone());
+
+        // Verify the trace has the error outcome
+        match &trace.outcome {
+            TraceOutcome::Error {
+                message,
+                step_index,
+            } => {
+                assert_eq!(message, &error_msg);
+                assert_eq!(*step_index, 0);
+            }
+            other => panic!("Expected Error outcome, got {:?}", other),
+        }
+
+        // Verify other fields are preserved
+        assert_eq!(trace.seed, 42);
+        assert_eq!(trace.version, "1.0.0");
     }
 }
 

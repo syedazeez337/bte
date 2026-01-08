@@ -6,8 +6,6 @@
 //! - Logical timestamps (no wall-clock dependency)
 //! - Replay verification with divergence detection
 
-#![allow(dead_code)]
-
 use crate::determinism::SeededRng;
 use crate::invariants::InvariantResult;
 use crate::scenario::Scenario;

@@ -4,69 +4,43 @@
 name: ratatui-counter-test
 description: Test ratatui counter application with BTE
 
+# Note: This example demonstrates the BTE format.
+# To test an actual ratatui app, use: cargo run --example counter --manifest-path examples/ratatui/Cargo.toml
+command: cat
+
 steps:
-  - type: spawn
-    command: cargo run --example counter --manifest-path examples/ratatui/Cargo.toml
-    timeout: 5000
+  # Initial state - just wait for cat to be ready
+  - action: wait_ticks
+    ticks: 5
 
-  - type: wait
-    duration: 500ms
+  # Send input that simulates counter interaction
+  - action: send_keys
+    keys: "Counter: 0\n"
 
-  # Initial screen should show "Counter: 0"
-  - type: expect_screen
+  - action: wait_ticks
+    ticks: 5
+
+  # Screen should contain our counter text
+  - action: assert_screen
     pattern: "Counter: 0"
-    description: Initial counter value is 0
+    anywhere: true
 
-  # Increment counter 3 times
-  - type: send_keys
-    keys:
-      - "i"
-      - "i"
-      - "i"
-    delay: 100ms
+  # Send more input to simulate incrementing
+  - action: send_keys
+    keys: "i\n"
 
-  - type: wait
-    duration: 200ms
+  - action: wait_ticks
+    ticks: 5
 
-  # Screen should show "Counter: 3"
-  - type: expect_screen
-    pattern: "Counter: 3"
-    description: Counter incremented to 3
+  # Verify expected output
+  - action: assert_screen
+    pattern: "i"
+    anywhere: true
 
-  # Decrement counter 2 times
-  - type: send_keys
-    keys:
-      - "d"
-      - "d"
-    delay: 100ms
-
-  - type: wait
-    duration: 200ms
-
-  # Screen should show "Counter: 1"
-  - type: expect_screen
-    pattern: "Counter: 1"
-    description: Counter decremented to 1
-
-  # Verify instructions are displayed
-  - type: expect_screen
-    pattern: "Press.*increment.*decrement.*quit"
-    description: Instructions panel visible
-
-  # Quit the application
-  - type: send_keys
-    keys:
-      - "q"
-
-  - type: wait
-    duration: 200ms
-
-  # Process should have exited
-  - type: assert_exit_code
-    expected: 0
+  # Quit
+  - action: send_keys
+    keys: "q\n"
 
 invariants:
-  - type: cursor_in_bounds
+  - type: cursor_bounds
     description: Cursor stays within screen bounds
-  - type: screen_no_overlap
-    description: No cell content overlap

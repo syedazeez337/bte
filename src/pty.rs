@@ -3,8 +3,6 @@
 //! This module provides low-level PTY operations for controlling terminal applications.
 //! It owns the terminal rather than simulating it.
 
-#![allow(dead_code)]
-
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
 use nix::pty::{openpty, OpenptyResult, Winsize};
 use nix::sys::termios::{self, LocalFlags, SetArg, Termios};
@@ -255,10 +253,11 @@ impl Pty {
 
 impl Drop for Pty {
     fn drop(&mut self) {
-        // OwnedFd handles closing automatically
-        // Just clear our references
-        self.master = None;
-        self.slave = None;
+        // Close file descriptors in reverse order of creation
+        // The OwnedFd type will automatically close on drop, but we explicitly
+        // take() to ensure deterministic cleanup order
+        self.slave.take();
+        self.master.take();
     }
 }
 
