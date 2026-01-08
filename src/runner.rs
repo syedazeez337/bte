@@ -777,7 +777,10 @@ mod tests {
             terminal: TerminalConfig::default(),
             env: HashMap::new(),
             steps: vec![
-                Step::WaitTicks { ticks: 5 },
+                Step::WaitFor {
+                    pattern: "test".to_string(),
+                    timeout_ms: Some(1000),
+                },
                 Step::AssertScreen {
                     pattern: "test".to_string(),
                     anywhere: true,
