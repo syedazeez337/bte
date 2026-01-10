@@ -97,6 +97,13 @@ fn main() -> ExitCode {
 fn run() -> Result<i32> {
     let args = Args::parse();
 
+    // Platform detection and warning
+    if !cfg!(target_os = "linux") {
+        eprintln!("[WARNING] BTE is currently optimized for Linux.");
+        eprintln!("[WARNING] Some features may not work correctly on {}", std::env::consts::OS);
+        eprintln!("[WARNING] See FUTURE.md for macOS/Windows roadmap.");
+    }
+
     let config = runner::RunnerConfig {
         seed: args.seed,
         max_ticks: args.max_ticks,

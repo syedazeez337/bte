@@ -186,6 +186,75 @@ pub enum Step {
         /// Invariant to check
         invariant: InvariantRef,
     },
+
+    /// Send mouse click at position (requires terminal mouse tracking)
+    #[serde(rename = "mouse_click")]
+    MouseClick {
+        /// Row (0-indexed)
+        row: u16,
+        /// Column (0-indexed)
+        col: u16,
+        /// Button: 0=left, 1=middle, 2=right
+        #[serde(default = "default_mouse_button")]
+        button: u8,
+        /// Enable mouse tracking first (recommended)
+        #[serde(default = "default_true")]
+        enable_tracking: bool,
+    },
+
+    /// Send mouse scroll at position
+    #[serde(rename = "mouse_scroll")]
+    MouseScroll {
+        /// Row (0-indexed)
+        row: u16,
+        /// Column (0-indexed)
+        col: u16,
+        /// Direction: "up" or "down"
+        direction: ScrollDirection,
+        /// Number of scroll units
+        #[serde(default = "default_scroll_count")]
+        count: u8,
+        /// Enable mouse tracking first (recommended)
+        #[serde(default = "default_true")]
+        enable_tracking: bool,
+    },
+
+    /// Wait for screen to contain pattern (same as wait_for but checks screen state)
+    #[serde(rename = "wait_screen")]
+    WaitScreen {
+        /// Pattern to match
+        pattern: String,
+        /// Timeout in milliseconds
+        #[serde(default)]
+        timeout_ms: Option<u64>,
+    },
+
+    /// Assert screen does NOT contain pattern
+    #[serde(rename = "assert_not_screen")]
+    AssertNotScreen {
+        /// Pattern that should not be present
+        pattern: String,
+    },
+}
+
+/// Scroll direction for mouse scroll events
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScrollDirection {
+    Up,
+    Down,
+}
+
+fn default_mouse_button() -> u8 {
+    0
+}
+
+fn default_scroll_count() -> u8 {
+    1
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Key sequence to send
@@ -388,12 +457,31 @@ pub enum InvariantRef {
         max_ticks: u64,
     },
 
-    /// Custom named invariant
+    /// Custom named invariant with optional pattern and cursor checks
     #[serde(rename = "custom")]
     Custom {
         /// Invariant name
         name: String,
+        /// Pattern to check (optional)
+        #[serde(default)]
+        pattern: Option<String>,
+        /// Expected to contain pattern (true) or not contain (false)
+        #[serde(default = "default_contains")]
+        should_contain: bool,
+        /// Expected cursor row (0-indexed, None means don't check)
+        #[serde(default)]
+        expected_row: Option<usize>,
+        /// Expected cursor column (0-indexed, None means don't check)
+        #[serde(default)]
+        expected_col: Option<usize>,
+        /// Custom description for this invariant
+        #[serde(default)]
+        description: Option<String>,
     },
+}
+
+fn default_contains() -> bool {
+    true
 }
 
 fn default_stable_ticks() -> u64 {

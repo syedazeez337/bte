@@ -1,0 +1,47 @@
+# Test Phase 1 features: mouse events, wait_screen, assert_not_screen
+name: "phase1-features-test"
+description: "Test new mouse, wait_screen, and assert_not_screen features"
+command: "sh"
+
+steps:
+  - action: send_keys
+    keys: "echo 'Starting test'\n"
+  - action: wait_for
+    pattern: "Starting test"
+
+  # Test wait_screen action (checks screen state)
+  - action: send_keys
+    keys: "echo 'Screen check passed'\n"
+  - action: wait_screen
+    pattern: "Screen check passed"
+    timeout_ms: 5000
+
+  # Test assert_not_screen action
+  - action: assert_not_screen
+    pattern: "SHOULD_NOT_EXIST"
+
+  # Test mouse click (generates SGR mouse sequence)
+  - action: mouse_click
+    row: 0
+    col: 0
+    button: 0  # left click
+    enable_tracking: true
+
+  # Test mouse scroll
+  - action: mouse_scroll
+    row: 0
+    col: 0
+    direction: up
+    count: 1
+    enable_tracking: true
+
+  - action: send_keys
+    keys: "exit\n"
+
+invariants:
+  - type: cursor_bounds
+  - type: no_deadlock
+    timeout_ms: 5000
+
+seed: 12345
+timeout_ms: 30000

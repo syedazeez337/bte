@@ -206,19 +206,10 @@ fn spawn_process_safe(
 // Phase 2: Invariant Setup
 // ============================================================================
 
-fn check_custom_invariants(invariants: &[InvariantRef], _trace_builder: &mut TraceBuilder) {
-    for inv in invariants {
-        if let InvariantRef::Custom { name } = inv {
-            // Build error trace and panic
-            let _trace = _trace_builder.build_error(format!(
-                "Custom invariant '{}' is not yet implemented. \
-                 Custom invariants require future implementation.",
-                name
-            ));
-            // Panic to exit early with error result
-            panic!("Custom invariant error: {}", name);
-        }
-    }
+fn check_custom_invariants(_invariants: &[InvariantRef], _trace_builder: &mut TraceBuilder) {
+    // Custom invariants are now supported via BuiltInInvariant::Custom
+    // This function is kept for any pre-flight validation if needed
+    // Currently, custom invariants are handled directly in build_invariant_engine
 }
 
 fn build_invariant_engine(invariants: &[InvariantRef]) -> InvariantEngine {
@@ -267,11 +258,21 @@ fn build_invariant_engine(invariants: &[InvariantRef]) -> InvariantEngine {
             InvariantRef::MaxLatency { max_ticks } => Some(BuiltInInvariant::MaxLatency {
                 max_ticks: *max_ticks,
             }),
-            // Custom invariants are handled with fail-fast before this function
-            InvariantRef::Custom { name } => unreachable!(
-                "Custom invariant '{}' should have been caught by fail-fast check",
-                name
-            ),
+            InvariantRef::Custom {
+                name,
+                pattern,
+                should_contain,
+                expected_row,
+                expected_col,
+                description,
+            } => Some(BuiltInInvariant::Custom {
+                name: name.clone(),
+                pattern: pattern.clone(),
+                should_contain: *should_contain,
+                expected_row: *expected_row,
+                expected_col: *expected_col,
+                description: description.clone().or(Some(format!("Custom invariant: {}", name))),
+            }),
         })
         .collect();
 
@@ -598,6 +599,28 @@ fn execute_step(
         Step::Snapshot { .. } => StepResult::Ok,
 
         Step::CheckInvariant { .. } => StepResult::Ok,
+
+        Step::MouseClick {
+            row,
+            col,
+            button,
+            enable_tracking,
+        } => execute_mouse_click(*row, *col, *button, *enable_tracking, &keys),
+
+        Step::MouseScroll {
+            row,
+            col,
+            direction,
+            count,
+            enable_tracking,
+        } => execute_mouse_scroll(*row, *col, direction, *count, *enable_tracking, &keys),
+
+        Step::WaitScreen {
+            pattern,
+            timeout_ms,
+        } => execute_wait_screen(pattern, *timeout_ms, process, io, screen, timing, config),
+
+        Step::AssertNotScreen { pattern } => execute_assert_not_screen(pattern, screen),
     }
 }
 
@@ -706,6 +729,149 @@ fn execute_assert_cursor(screen: &Screen, expected_row: usize, expected_col: usi
         return StepResult::Error(format!(
             "Cursor at ({}, {}), expected ({}, {})",
             cursor.col, cursor.row, expected_col, expected_row
+        ));
+    }
+    StepResult::Ok
+}
+
+/// Enable xterm mouse tracking mode
+fn enable_mouse_tracking(keys: &KeyInjector) -> StepResult {
+    // SGR 1006 mode - extended mouse reporting
+    let seq = b"\x1b[?1006h";
+    match keys.inject_raw(seq) {
+        Ok(_) => StepResult::Ok,
+        Err(e) => StepResult::Error(format!("Failed to enable mouse tracking: {}", e)),
+    }
+}
+
+/// Execute mouse click at specified position
+fn execute_mouse_click(
+    row: u16,
+    col: u16,
+    button: u8,
+    enable_tracking: bool,
+    keys: &KeyInjector,
+) -> StepResult {
+    if enable_tracking {
+        match enable_mouse_tracking(keys) {
+            StepResult::Ok => {}
+            StepResult::Error(e) => return StepResult::Error(e),
+            StepResult::Output(_) => unreachable!(),
+        }
+    }
+
+    // SGR mouse event format: CSI M Cb Cx Cy
+    // Cb = button code (0=press, 3=release) + 32
+    // Cx, Cy = column, row + 32 (1-indexed, then clamp to u8 range)
+    let cxb = (button + 32) as u8;
+    let cxx = ((col + 1).min(2000) as usize + 32) as u8;
+    let cxy = ((row + 1).min(2000) as usize + 32) as u8;
+
+    // CSI M Cb Cx Cy
+    let seq = format!("\x1b[M{}{}{}", cxb as char, cxx as char, cxy as char);
+    let bytes = seq.as_bytes();
+
+    match keys.inject_raw(bytes) {
+        Ok(_) => StepResult::Ok,
+        Err(e) => StepResult::Error(format!("Failed to send mouse click: {}", e)),
+    }
+}
+
+/// Execute mouse scroll at specified position
+fn execute_mouse_scroll(
+    row: u16,
+    col: u16,
+    direction: &crate::scenario::ScrollDirection,
+    count: u8,
+    enable_tracking: bool,
+    keys: &KeyInjector,
+) -> StepResult {
+    if enable_tracking {
+        match enable_mouse_tracking(keys) {
+            StepResult::Ok => {}
+            StepResult::Error(e) => return StepResult::Error(e),
+            StepResult::Output(_) => unreachable!(),
+        }
+    }
+
+    // Scroll up button = 64, scroll down button = 65
+    let button = match direction {
+        crate::scenario::ScrollDirection::Up => 64u8,
+        crate::scenario::ScrollDirection::Down => 65u8,
+    };
+
+    let cxx = ((col + 1).min(2000) as usize + 32) as u8;
+    let cxy = ((row + 1).min(2000) as usize + 32) as u8;
+
+    // Send multiple scroll events if count > 1
+    for _ in 0..count {
+        // CSI M Cb Cx Cy (button press)
+        let press_seq = format!("\x1b[M{}{}{}", button as char, cxx as char, cxy as char);
+        // CSI M Cb Cx Cy (button release - button + 3)
+        let release_seq = format!("\x1b[M{}{}{}", (button + 3) as char, cxx as char, cxy as char);
+
+        if let Err(e) = keys.inject_raw(press_seq.as_bytes()) {
+            return StepResult::Error(format!("Failed to send scroll press: {}", e));
+        }
+        if let Err(e) = keys.inject_raw(release_seq.as_bytes()) {
+            return StepResult::Error(format!("Failed to send scroll release: {}", e));
+        }
+    }
+
+    StepResult::Ok
+}
+
+/// Wait for pattern in screen content (checks screen state, not stream)
+fn execute_wait_screen(
+    pattern: &str,
+    timeout_ms: Option<u64>,
+    process: &mut PtyProcess,
+    io: &mut IoLoop,
+    screen: &mut Screen,
+    timing: &mut TimingController,
+    _config: &RunnerConfig,
+) -> StepResult {
+    let timeout_ticks = timeout_ms.unwrap_or(5000) / 10;
+    let regex = match Regex::new(pattern) {
+        Ok(r) => r,
+        Err(e) => return StepResult::Error(format!("Invalid regex: {}", e)),
+    };
+
+    let mut ticks_waited = 0u64;
+
+    loop {
+        // Drain any available output and update screen
+        let _ = io.read_available(process);
+        let output = io.take_output();
+        screen.process(&output);
+
+        // Check if pattern is in screen content
+        if regex.is_match(&screen.text()) {
+            return StepResult::Ok;
+        }
+
+        // Check timeout
+        if ticks_waited >= timeout_ticks {
+            let screen_text = screen.text();
+            let preview = truncate_screen_preview(&screen_text);
+            return StepResult::Error(format!(
+                "wait_screen timeout after {} ticks. Screen preview:\n{}",
+                ticks_waited, preview
+            ));
+        }
+
+        // Wait for next tick
+        let _ = timing.wait_ticks(1);
+        ticks_waited += 1;
+    }
+}
+
+/// Assert screen does NOT contain pattern
+fn execute_assert_not_screen(pattern: &str, screen: &Screen) -> StepResult {
+    if screen.text().contains(pattern) {
+        return StepResult::Error(format!(
+            "Screen contains pattern '{}' but should not",
+            pattern
         ));
     }
     StepResult::Ok

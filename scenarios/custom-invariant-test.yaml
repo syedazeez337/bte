@@ -1,0 +1,37 @@
+# Test custom invariant support
+name: "custom-invariant-test"
+description: "Test that custom invariants work without panicking"
+command: "sh"
+
+steps:
+  - action: send_keys
+    keys: "echo 'Hello World'\n"
+  - action: wait_for
+    pattern: "Hello World"
+  - action: send_keys
+    keys: "exit\n"
+
+invariants:
+  # Custom invariant with pattern - should find "Hello"
+  - type: custom
+    name: "contains_hello"
+    pattern: "Hello"
+    should_contain: true
+    description: "Screen should contain 'Hello'"
+
+  # Custom invariant with pattern that should not be found
+  - type: custom
+    name: "no_goodbye"
+    pattern: "Goodbye"
+    should_contain: false
+    description: "Screen should not contain 'Goodbye'"
+
+  # Custom invariant with cursor position check
+  - type: custom
+    name: "cursor_at_end"
+    expected_row: 0
+    expected_col: 11
+    description: "Cursor should be at end of 'Hello World'"
+
+seed: 42
+timeout_ms: 10000

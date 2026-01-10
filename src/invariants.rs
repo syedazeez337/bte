@@ -152,6 +152,32 @@ pub enum BuiltInInvariant {
         /// Maximum ticks for latency
         max_ticks: u64,
     },
+
+    /// Custom invariant with pattern-based checking
+    #[serde(rename = "custom")]
+    Custom {
+        /// Name of the custom invariant
+        name: String,
+        /// Pattern to check (optional)
+        #[serde(default)]
+        pattern: Option<String>,
+        /// Expected to contain pattern (true) or not contain (false)
+        #[serde(default = "default_contains")]
+        should_contain: bool,
+        /// Expected cursor row (0-indexed, None means don't check)
+        #[serde(default)]
+        expected_row: Option<usize>,
+        /// Expected cursor column (0-indexed, None means don't check)
+        #[serde(default)]
+        expected_col: Option<usize>,
+        /// Custom description for this invariant
+        #[serde(default)]
+        description: Option<String>,
+    },
+}
+
+fn default_contains() -> bool {
+    true
 }
 
 fn default_deadlock_timeout() -> u64 {
@@ -197,6 +223,21 @@ impl BuiltInInvariant {
             BuiltInInvariant::MaxLatency { max_ticks } => {
                 Box::new(MaxLatencyInvariant::new(*max_ticks))
             }
+            BuiltInInvariant::Custom {
+                name,
+                pattern,
+                should_contain,
+                expected_row,
+                expected_col,
+                description,
+            } => Box::new(CustomInvariant::new(
+                name.clone(),
+                pattern.clone(),
+                *should_contain,
+                *expected_row,
+                *expected_col,
+                description.clone().or(Some(format!("Custom invariant: {}", name))),
+            )),
         }
     }
 }
@@ -691,6 +732,143 @@ impl Invariant for MaxLatencyInvariant {
                 ))
             } else {
                 None
+            },
+            ctx.step,
+            ctx.tick,
+        )
+    }
+}
+
+/// Custom invariant with flexible pattern and cursor position checking
+pub struct CustomInvariant {
+    name: String,
+    pattern: Option<String>,
+    should_contain: bool,
+    expected_row: Option<usize>,
+    expected_col: Option<usize>,
+    description: Option<String>,
+}
+
+impl CustomInvariant {
+    pub fn new(
+        name: String,
+        pattern: Option<String>,
+        should_contain: bool,
+        expected_row: Option<usize>,
+        expected_col: Option<usize>,
+        description: Option<String>,
+    ) -> Self {
+        Self {
+            name,
+            pattern,
+            should_contain,
+            expected_row,
+            expected_col,
+            description,
+        }
+    }
+}
+
+impl Invariant for CustomInvariant {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        self.description.as_deref().unwrap_or_else(|| {
+            static DEFAULT_DESC: &str = "Custom invariant check";
+            DEFAULT_DESC
+        })
+    }
+
+    fn evaluate(&self, ctx: &mut InvariantContext) -> InvariantResult {
+        let mut satisfied = true;
+        let mut details = Vec::new();
+
+        // Check pattern if specified
+        if let Some(pattern) = &self.pattern {
+            if let Some(screen) = ctx.screen {
+                let screen_text = screen.text();
+                let contains = screen_text.contains(pattern);
+
+                if self.should_contain {
+                    if !contains {
+                        satisfied = false;
+                        details.push(format!(
+                            "Pattern '{}' not found in screen content (length: {})",
+                            pattern,
+                            screen_text.len()
+                        ));
+                    }
+                } else {
+                    if contains {
+                        satisfied = false;
+                        details.push(format!(
+                            "Pattern '{}' should not be present but was found",
+                            pattern
+                        ));
+                    }
+                }
+            } else {
+                details.push("No screen available for pattern check".to_string());
+            }
+        }
+
+        // Check cursor position if specified
+        if let (Some(row), Some(col)) = (self.expected_row, self.expected_col) {
+            if let Some(screen) = ctx.screen {
+                let cursor = screen.cursor();
+                let cursor_row = cursor.row as usize;
+                let cursor_col = cursor.col as usize;
+
+                if cursor_row != row || cursor_col != col {
+                    satisfied = false;
+                    details.push(format!(
+                        "Expected cursor at ({}, {}) but was at ({}, {})",
+                        row, col, cursor_row, cursor_col
+                    ));
+                }
+            } else {
+                details.push("No screen available for cursor check".to_string());
+            }
+        }
+
+        // Check only row if specified
+        if let (Some(row), None) = (self.expected_row, self.expected_col) {
+            if let Some(screen) = ctx.screen {
+                let cursor_row = screen.cursor().row as usize;
+                if cursor_row != row {
+                    satisfied = false;
+                    details.push(format!(
+                        "Expected cursor row {} but was at row {}",
+                        row, cursor_row
+                    ));
+                }
+            }
+        }
+
+        // Check only col if specified
+        if let (None, Some(col)) = (self.expected_row, self.expected_col) {
+            if let Some(screen) = ctx.screen {
+                let cursor_col = screen.cursor().col as usize;
+                if cursor_col != col {
+                    satisfied = false;
+                    details.push(format!(
+                        "Expected cursor column {} but was at column {}",
+                        col, cursor_col
+                    ));
+                }
+            }
+        }
+
+        InvariantResult::new(
+            self.name(),
+            satisfied,
+            self.description(),
+            if details.is_empty() {
+                None
+            } else {
+                Some(details.join("; "))
             },
             ctx.step,
             ctx.tick,
