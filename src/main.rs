@@ -15,6 +15,7 @@ mod keys;
 mod platform;
 mod process;
 mod pty;
+mod parallel;
 mod replay;
 mod runner;
 mod scenario;

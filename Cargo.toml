@@ -26,8 +26,10 @@ lru = "0.12"
 fastrand = "2.0"
 seahash = "4.1"
 uuid = { version = "1.0", features = ["v4"] }
+rayon = "1.10"
 
 [dev-dependencies]
+tempfile = "3.12"
 
 [profile.release]
 lto = true

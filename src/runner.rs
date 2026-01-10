@@ -39,7 +39,7 @@ impl RunResult {
 // RunnerConfig
 // ============================================================================
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RunnerConfig {
     pub trace_path: Option<String>,
     pub verbose: bool,
