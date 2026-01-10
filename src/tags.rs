@@ -122,24 +122,20 @@ impl TagFilter {
                     }
                 })
             }
-            TagFilter::HasNone(tag_names) => {
-                !tag_names.iter().any(|n| {
-                    if let Some((cat, val)) = n.split_once('=') {
-                        tags.iter().any(|t| {
-                            t.category.as_ref().map_or(false, |c| c == cat) && t.name == val
-                        })
-                    } else if let Some((cat, name)) = n.split_once(':') {
-                        tags.iter().any(|t| {
-                            t.category.as_ref().map_or(false, |c| c == cat) && t.name == name
-                        })
-                    } else {
-                        tags.iter().any(|t| t.name == *n)
-                    }
-                })
-            }
-            TagFilter::HasCategory(category) => {
-                tags.iter().any(|t| t.category.as_ref().map_or(false, |c| c == category))
-            }
+            TagFilter::HasNone(tag_names) => !tag_names.iter().any(|n| {
+                if let Some((cat, val)) = n.split_once('=') {
+                    tags.iter()
+                        .any(|t| t.category.as_ref().map_or(false, |c| c == cat) && t.name == val)
+                } else if let Some((cat, name)) = n.split_once(':') {
+                    tags.iter()
+                        .any(|t| t.category.as_ref().map_or(false, |c| c == cat) && t.name == name)
+                } else {
+                    tags.iter().any(|t| t.name == *n)
+                }
+            }),
+            TagFilter::HasCategory(category) => tags
+                .iter()
+                .any(|t| t.category.as_ref().map_or(false, |c| c == category)),
             TagFilter::Not(inner) => !inner.matches_tags(tags),
             TagFilter::All => true,
             TagFilter::None => false,
@@ -374,8 +370,7 @@ pub struct TagStats {
 
 /// Calculate tag statistics for a set of scenarios
 pub fn calculate_tag_stats(scenarios: &[(Scenario, std::path::PathBuf)]) -> TagStats {
-    let mut tag_counts: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
+    let mut tag_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut category_counts: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
 

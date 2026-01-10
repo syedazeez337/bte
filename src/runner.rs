@@ -240,11 +240,9 @@ fn build_invariant_engine(invariants: &[InvariantRef]) -> InvariantEngine {
                     allowed_signals: allowed_signals.clone(),
                 })
             }
-            InvariantRef::ScreenStable { min_ticks } => {
-                Some(BuiltInInvariant::ScreenStable {
-                    min_ticks: *min_ticks,
-                })
-            }
+            InvariantRef::ScreenStable { min_ticks } => Some(BuiltInInvariant::ScreenStable {
+                min_ticks: *min_ticks,
+            }),
             InvariantRef::ViewportValid => Some(BuiltInInvariant::ViewportValid),
             InvariantRef::ResponseTime { max_ticks } => Some(BuiltInInvariant::ResponseTime {
                 max_ticks: *max_ticks,
@@ -521,7 +519,8 @@ fn determine_outcome(
                 Ok(Signal::SIGXFSZ) => "SIGXFSZ",
                 Ok(Signal::SIGWINCH) => "SIGWINCH",
                 _ => "UNKNOWN",
-            }.to_string();
+            }
+            .to_string();
             TraceOutcome::Signaled {
                 signal: sig,
                 signal_name,
@@ -734,10 +733,10 @@ fn check_regex_complexity(pattern: &str) -> Option<String> {
 
     // Check for obviously problematic patterns
     let problematic = [
-        r"\(\S+\)\+",  // (something)+
-        r"\[\S+\]\+", // [something]+
+        r"\(\S+\)\+",      // (something)+
+        r"\[\S+\]\+",      // [something]+
         r"\(\S+\s*\)\+\?", // Nested optional groups
-        r"^\(\S+\|\)", // Left-recursive alternation at start
+        r"^\(\S+\|\)",     // Left-recursive alternation at start
     ];
 
     for pat in &problematic {
@@ -1068,12 +1067,7 @@ fn execute_mouse_scroll(
         // CSI M Cb Cx Cy (button press)
         let press_seq = format!("\x1b[M{}{}{}", button as char, cxx, cxy);
         // CSI M Cb Cx Cy (button release - button + 3)
-        let release_seq = format!(
-            "\x1b[M{}{}{}",
-            (button + 3) as char,
-            cxx,
-            cxy
-        );
+        let release_seq = format!("\x1b[M{}{}{}", (button + 3) as char, cxx, cxy);
 
         if let Err(e) = keys.inject_raw(press_seq.as_bytes()) {
             return StepResult::Error(format!("Failed to send scroll press: {}", e));
@@ -1486,24 +1480,26 @@ mod tests {
     }
 
     #[test]
-    fn test_send_keys_with_cat() {
+    fn test_send_keys_with_read() {
         use crate::scenario::KeySequence;
+        // Use `read` command which reads one line and exits
         let scenario = Scenario {
             name: "send-keys-test".to_string(),
-            description: "Test send_keys with cat".to_string(),
-            command: Command::Simple("cat".to_string()),
+            description: "Test send_keys with read".to_string(),
+            command: Command::Simple("read variable; echo $variable".to_string()),
             terminal: TerminalConfig::default(),
             env: HashMap::new(),
             steps: vec![
                 Step::SendKeys {
-                    keys: KeySequence::Text("test_input".to_string()),
+                    keys: KeySequence::Text("test_value".to_string()),
                 },
                 Step::SendKeys {
                     keys: KeySequence::Text("\n".to_string()),
                 },
-                // cat echoes input but doesn't produce output that wait_for can detect
-                // because the input goes to stdin and output comes from stdout
-                Step::WaitTicks { ticks: 20 },
+                Step::WaitFor {
+                    pattern: "test_value".to_string(),
+                    timeout_ms: Some(5000),
+                },
             ],
             invariants: vec![],
             seed: Some(42),
@@ -1520,12 +1516,7 @@ mod tests {
         };
 
         let result = run_scenario(&scenario, &config);
-        // cat should complete (not timeout) when we send input
-        assert!(
-            result.exit_code >= 0,
-            "Cat should not error (exit code: {})",
-            result.exit_code
-        );
+        assert_eq!(result.exit_code, 0, "Read should complete and echo input");
     }
 
     #[test]
@@ -1593,7 +1584,10 @@ mod tests {
 
         let result = run_scenario(&scenario, &config);
         // SIGTERM should terminate the process (exit code 143 on most systems)
-        assert_ne!(result.exit_code, 0, "Process should be terminated by SIGTERM");
+        assert_ne!(
+            result.exit_code, 0,
+            "Process should be terminated by SIGTERM"
+        );
     }
 
     #[test]
@@ -1739,6 +1733,9 @@ mod tests {
         };
 
         let result = run_scenario(&scenario, &config);
-        assert_eq!(result.exit_code, 0, "Assert screen should pass when pattern exists");
+        assert_eq!(
+            result.exit_code, 0,
+            "Assert screen should pass when pattern exists"
+        );
     }
 }

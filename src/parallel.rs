@@ -91,10 +91,7 @@ impl Default for ParallelConfig {
 /// # Returns
 ///
 /// ParallelResult containing aggregated results
-pub fn run_parallel(
-    scenarios: &[(Scenario, PathBuf)],
-    config: &ParallelConfig,
-) -> ParallelResult {
+pub fn run_parallel(scenarios: &[(Scenario, PathBuf)], config: &ParallelConfig) -> ParallelResult {
     let start_time = Instant::now();
     let total = scenarios.len();
 
@@ -242,11 +239,9 @@ pub fn run_parallel_from_paths(
                     .map(|e| e.to_string_lossy().to_lowercase())
                     == Some("json".to_string())
                 {
-                    serde_json::from_str(&content)
-                        .map_err(|e| format!("JSON parse error: {}", e))
+                    serde_json::from_str(&content).map_err(|e| format!("JSON parse error: {}", e))
                 } else {
-                    serde_yaml::from_str(&content)
-                        .map_err(|e| format!("YAML parse error: {}", e))
+                    serde_yaml::from_str(&content).map_err(|e| format!("YAML parse error: {}", e))
                 };
 
                 match parse_result {
@@ -409,8 +404,6 @@ steps:
         // Verify the result has valid fields
         let scenario_result = &result.results[0];
         assert_eq!(scenario_result.name, "Test Scenario 1");
-        assert!(scenario_result.duration >= Duration::ZERO);
-        assert!(scenario_result.steps_executed >= 0);
         // Either passed or failed - we can't guarantee which without controlling the shell
         assert!(result.passed + result.failed + result.skipped == 1);
     }

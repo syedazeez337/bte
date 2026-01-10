@@ -113,7 +113,11 @@ impl Command {
     pub fn shell_command(&self) -> String {
         match self {
             Command::Simple(s) => s.clone(),
-            Command::Full { program, args, cwd: _ } => {
+            Command::Full {
+                program,
+                args,
+                cwd: _,
+            } => {
                 // Build a shell-escaped command
                 let mut cmd = String::new();
                 cmd.push_str(&shell_escape(program));
@@ -774,7 +778,8 @@ impl Scenario {
                     message: format!(
                         "Duplicate tag: '{}'{}",
                         tag.name,
-                        tag.category.as_ref()
+                        tag.category
+                            .as_ref()
                             .map(|c| format!(" (category: {})", c))
                             .unwrap_or_else(|| "".to_string())
                     ),

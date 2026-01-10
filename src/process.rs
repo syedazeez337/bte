@@ -270,23 +270,24 @@ impl PtyProcess {
                 // - EINVAL: second argument not 0 when not owner of terminal
                 // - EPERM: not session leader and not forcing (we set force=false)
                 // We check the return value to catch any unexpected failures.
-                let ctlty_result = unsafe {
-                    libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0)
-                };
+                let ctlty_result = unsafe { libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0) };
                 if ctlty_result != 0 {
                     // Capture errno safely - use nix errno accessor which is portable
                     let errno = nix::errno::Errno::last_raw();
                     let msg = match errno {
                         libc::EBADF => format!("bte: TIOCSCTTY failed: Bad file descriptor\n"),
-                        libc::EINVAL => format!("bte: TIOCSCTTY failed: Invalid argument (not session leader?)\n"),
+                        libc::EINVAL => format!(
+                            "bte: TIOCSCTTY failed: Invalid argument (not session leader?)\n"
+                        ),
                         libc::EPERM => format!("bte: TIOCSCTTY failed: Not session leader\n"),
                         libc::ENOTTY => format!("bte: TIOCSCTTY failed: Not a terminal\n"),
                         _ => format!("bte: TIOCSCTTY failed: Unknown error (errno {})\n", errno),
                     };
-                    let _ = unsafe {
-                        libc::write(2, msg.as_ptr() as *const libc::c_void, msg.len())
-                    };
-                    unsafe { libc::_exit(1); }
+                    let _ =
+                        unsafe { libc::write(2, msg.as_ptr() as *const libc::c_void, msg.len()) };
+                    unsafe {
+                        libc::_exit(1);
+                    }
                 }
 
                 // Redirect stdio to the slave

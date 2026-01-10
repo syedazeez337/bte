@@ -113,11 +113,7 @@ impl Default for FlakyConfig {
 }
 
 /// Run a scenario with retry logic for flaky detection
-pub fn run_with_retry(
-    scenario: &Scenario,
-    path: &PathBuf,
-    config: &FlakyConfig,
-) -> FlakyResult {
+pub fn run_with_retry(scenario: &Scenario, path: &PathBuf, config: &FlakyConfig) -> FlakyResult {
     let mut results: Vec<(bool, i32)> = Vec::new();
     let mut retries_used = 0;
     let mut first_failure_exit_code = None;
@@ -249,7 +245,10 @@ pub fn print_flaky_summary(summary: &FlakySummary) {
     println!("Total scenarios: {}", summary.total_scenarios);
     println!("Stable (all passes): {}", summary.stable_count);
     println!("Flaky but fixed: {}", summary.flaky_fixed_count);
-    println!("Consistently failing: {}", summary.consistently_failing_count);
+    println!(
+        "Consistently failing: {}",
+        summary.consistently_failing_count
+    );
     println!("Unstable (mixed results): {}", summary.unstable_count);
     println!();
 
@@ -257,8 +256,15 @@ pub fn print_flaky_summary(summary: &FlakySummary) {
         println!("Results by scenario:");
         for result in &summary.scenarios {
             match result {
-                FlakyResult::Stable { scenario_name, total_runs, passes } => {
-                    println!("  [STABLE] {}: {}/{} passes", scenario_name, passes, total_runs);
+                FlakyResult::Stable {
+                    scenario_name,
+                    total_runs,
+                    passes,
+                } => {
+                    println!(
+                        "  [STABLE] {}: {}/{} passes",
+                        scenario_name, passes, total_runs
+                    );
                 }
                 FlakyResult::FlakyFixed {
                     scenario_name,
@@ -268,7 +274,10 @@ pub fn print_flaky_summary(summary: &FlakySummary) {
                 } => {
                     println!(
                         "  [FLAKY FIXED] {}: passed after {} retries ({}/{} runs)",
-                        scenario_name, retries_used, total_runs - 1, total_runs
+                        scenario_name,
+                        retries_used,
+                        total_runs - 1,
+                        total_runs
                     );
                 }
                 FlakyResult::ConsistentlyFailing {
@@ -291,7 +300,10 @@ pub fn print_flaky_summary(summary: &FlakySummary) {
                 } => {
                     println!(
                         "  [UNSTABLE] {}: {}/{} passes, exit codes: {:?}",
-                        scenario_name, passes, passes + failures, exit_codes
+                        scenario_name,
+                        passes,
+                        passes + failures,
+                        exit_codes
                     );
                 }
             }
@@ -313,7 +325,8 @@ pub fn load_flaky_history(path: &Path) -> Result<Vec<FlakyHistoryEntry>, std::io
         return Ok(Vec::new());
     }
     let content = std::fs::read_to_string(path)?;
-    serde_json::from_str(&content).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    serde_json::from_str(&content)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
 /// Save flaky history to file
@@ -327,11 +340,7 @@ pub fn save_flaky_history(
 }
 
 /// Update history with new results
-pub fn update_history(
-    history: &mut Vec<FlakyHistoryEntry>,
-    result: &FlakyResult,
-    path: &PathBuf,
-) {
+pub fn update_history(history: &mut Vec<FlakyHistoryEntry>, result: &FlakyResult, path: &PathBuf) {
     // Use canonical path if possible for consistent comparison across different working directories
     let path_str = match path.canonicalize() {
         Ok(canonical) => canonical.to_string_lossy().to_string(),
@@ -342,7 +351,9 @@ pub fn update_history(
     if let Some(entry) = history.iter_mut().find(|e| e.path == path_str) {
         // Update existing entry
         match result {
-            FlakyResult::Stable { total_runs, passes, .. } => {
+            FlakyResult::Stable {
+                total_runs, passes, ..
+            } => {
                 entry.total_runs += total_runs;
                 entry.total_passes += passes;
             }
@@ -388,13 +399,21 @@ pub fn update_history(
     } else {
         // Create new entry
         let (total_runs, total_passes, total_failures, exit_codes, is_flaky) = match result {
-            FlakyResult::Stable { total_runs, passes, .. } => (*total_runs, *passes, 0, vec![], false),
+            FlakyResult::Stable {
+                total_runs, passes, ..
+            } => (*total_runs, *passes, 0, vec![], false),
             FlakyResult::FlakyFixed {
                 total_runs,
                 passes,
                 exit_codes,
                 ..
-            } => (*total_runs, *passes, total_runs - passes, exit_codes.clone(), true),
+            } => (
+                *total_runs,
+                *passes,
+                total_runs - passes,
+                exit_codes.clone(),
+                true,
+            ),
             FlakyResult::ConsistentlyFailing {
                 total_runs,
                 failures,

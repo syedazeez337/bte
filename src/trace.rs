@@ -773,7 +773,8 @@ mod tests {
         let mut replay = ReplayEngine::new(&trace);
 
         // Try to verify with wrong tick
-        let result = replay.verify_checkpoint(0, 999, scheduler.rng_state().unwrap_or(0), Some(hash));
+        let result =
+            replay.verify_checkpoint(0, 999, scheduler.rng_state().unwrap_or(0), Some(hash));
         assert!(result.is_err());
 
         let err = result.unwrap_err();

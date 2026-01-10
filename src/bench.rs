@@ -244,12 +244,8 @@ pub fn benchmark_scenario(
     let p99 = percentile(0.99);
 
     // Check for regression against baseline
-    let (is_regression, regression_details) = check_regression(
-        &scenario.name,
-        path,
-        mean_duration,
-        config,
-    );
+    let (is_regression, regression_details) =
+        check_regression(&scenario.name, path, mean_duration, config);
 
     BenchmarkResult {
         name: scenario.name.clone(),
@@ -325,14 +321,12 @@ fn check_regression(
 /// Load baseline metrics from file
 pub fn load_baselines(path: &Path) -> Result<Vec<BaselineMetrics>, std::io::Error> {
     let content = std::fs::read_to_string(path)?;
-    serde_json::from_str(&content).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    serde_json::from_str(&content)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
 /// Save baseline metrics to file
-pub fn save_baselines(
-    baselines: &[BaselineMetrics],
-    path: &Path,
-) -> Result<(), std::io::Error> {
+pub fn save_baselines(baselines: &[BaselineMetrics], path: &Path) -> Result<(), std::io::Error> {
     let content = serde_json::to_string_pretty(baselines)?;
     std::fs::write(path, content)?;
     Ok(())
@@ -342,7 +336,10 @@ pub fn save_baselines(
 pub fn create_baseline(result: &BenchmarkResult) -> BaselineMetrics {
     BaselineMetrics {
         name: result.name.clone(),
-        path_hash: format!("{:x}", seahash::hash(result.path.to_string_lossy().as_bytes())),
+        path_hash: format!(
+            "{:x}",
+            seahash::hash(result.path.to_string_lossy().as_bytes())
+        ),
         mean_duration_ns: result.mean_duration.as_nanos() as u64,
         std_dev_ns: result.std_dev.as_nanos() as u64,
         cv: result.cv,
@@ -371,7 +368,10 @@ pub fn print_benchmark_summary(results: &[BenchmarkResult]) {
         println!("  P99: {:?}", result.p99);
 
         if let Some(ref regression) = result.regression_details {
-            println!("  REGRESSION: {:.2}% slower than baseline", regression.percentage_change);
+            println!(
+                "  REGRESSION: {:.2}% slower than baseline",
+                regression.percentage_change
+            );
             println!("    Baseline: {:?}", regression.baseline_mean);
             println!("    Current: {:?}", regression.current_mean);
         } else {

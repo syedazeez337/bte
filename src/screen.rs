@@ -108,18 +108,14 @@ impl CellAttrs {
         let fg_hash = match self.fg {
             Color::Default => 0u64,
             Color::Indexed(i) => 1u64 ^ (i as u64 + 2),
-            Color::Rgb(r, g, b) => {
-                2u64 ^ ((r as u64) << 16) ^ ((g as u64) << 8) ^ (b as u64)
-            }
+            Color::Rgb(r, g, b) => 2u64 ^ ((r as u64) << 16) ^ ((g as u64) << 8) ^ (b as u64),
         };
 
         // Combine background color
         let bg_hash = match self.bg {
             Color::Default => 0u64,
             Color::Indexed(i) => 3u64 ^ (i as u64 + 4),
-            Color::Rgb(r, g, b) => {
-                4u64 ^ ((r as u64) << 16) ^ ((g as u64) << 8) ^ (b as u64)
-            }
+            Color::Rgb(r, g, b) => 4u64 ^ ((r as u64) << 16) ^ ((g as u64) << 8) ^ (b as u64),
         };
 
         // Combine flags (use bits directly)
@@ -1091,9 +1087,35 @@ impl Screen {
         // Mix in dimensions and cursor
         let mix_u64 = |v0: &mut u64, v1: &mut u64, v2: &mut u64, v3: &mut u64, x: u64| {
             *v3 ^= x;
-            for _ in 0..C_ROUNDS { *v0 = v0.wrapping_add(*v1); *v1 = v1.rotate_left(13); *v1 ^= *v0; *v2 = v2.wrapping_add(*v3); *v3 = v3.rotate_left(16); *v3 ^= *v2; *v0 = v0.wrapping_add(*v1); *v1 = v1.rotate_left(13); *v1 ^= *v0; *v2 = v2.wrapping_add(*v3); *v3 = v3.rotate_left(16); *v3 ^= *v2; }
+            for _ in 0..C_ROUNDS {
+                *v0 = v0.wrapping_add(*v1);
+                *v1 = v1.rotate_left(13);
+                *v1 ^= *v0;
+                *v2 = v2.wrapping_add(*v3);
+                *v3 = v3.rotate_left(16);
+                *v3 ^= *v2;
+                *v0 = v0.wrapping_add(*v1);
+                *v1 = v1.rotate_left(13);
+                *v1 ^= *v0;
+                *v2 = v2.wrapping_add(*v3);
+                *v3 = v3.rotate_left(16);
+                *v3 ^= *v2;
+            }
             *v0 ^= x;
-            for _ in 0..D_ROUNDS { *v0 = v0.wrapping_add(*v1); *v1 = v1.rotate_left(13); *v1 ^= *v0; *v2 = v2.wrapping_add(*v3); *v3 = v3.rotate_left(16); *v3 ^= *v2; *v0 = v0.wrapping_add(*v1); *v1 = v1.rotate_left(13); *v1 ^= *v0; *v2 = v2.wrapping_add(*v3); *v3 = v3.rotate_left(16); *v3 ^= *v2; }
+            for _ in 0..D_ROUNDS {
+                *v0 = v0.wrapping_add(*v1);
+                *v1 = v1.rotate_left(13);
+                *v1 ^= *v0;
+                *v2 = v2.wrapping_add(*v3);
+                *v3 = v3.rotate_left(16);
+                *v3 ^= *v2;
+                *v0 = v0.wrapping_add(*v1);
+                *v1 = v1.rotate_left(13);
+                *v1 ^= *v0;
+                *v2 = v2.wrapping_add(*v3);
+                *v3 = v3.rotate_left(16);
+                *v3 ^= *v2;
+            }
         };
 
         // Hash dimensions
@@ -1133,8 +1155,22 @@ impl Screen {
         v2 ^= v3;
         v3 ^= v0;
 
-        for _ in 0..C_ROUNDS { v0 = v0.wrapping_add(v1); v1 = v1.rotate_left(13); v1 ^= v0; v2 = v2.wrapping_add(v3); v3 = v3.rotate_left(16); v3 ^= v2; }
-        for _ in 0..D_ROUNDS { v0 = v0.wrapping_add(v1); v1 = v1.rotate_left(13); v1 ^= v0; v2 = v2.wrapping_add(v3); v3 = v3.rotate_left(16); v3 ^= v2; }
+        for _ in 0..C_ROUNDS {
+            v0 = v0.wrapping_add(v1);
+            v1 = v1.rotate_left(13);
+            v1 ^= v0;
+            v2 = v2.wrapping_add(v3);
+            v3 = v3.rotate_left(16);
+            v3 ^= v2;
+        }
+        for _ in 0..D_ROUNDS {
+            v0 = v0.wrapping_add(v1);
+            v1 = v1.rotate_left(13);
+            v1 ^= v0;
+            v2 = v2.wrapping_add(v3);
+            v3 = v3.rotate_left(16);
+            v3 ^= v2;
+        }
 
         v0 ^ v1 ^ v2 ^ v3
     }
