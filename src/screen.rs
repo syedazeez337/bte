@@ -4,6 +4,7 @@
 //! with scrollback buffer, cursor tracking, and dirty line management.
 
 use crate::ansi::{AnsiEvent, AnsiParser, CsiSequence, EscSequence};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 
@@ -48,7 +49,7 @@ impl Hasher for FnvHasher {
 }
 
 /// A single cell in the terminal grid
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Cell {
     /// The character in this cell
     pub ch: char,
@@ -86,7 +87,7 @@ impl Default for Cell {
 }
 
 /// Cell attributes (colors and style flags)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, Serialize, Deserialize)]
 pub struct CellAttrs {
     /// Foreground color (0-255, or -1 for default)
     pub fg: i16,
@@ -109,7 +110,7 @@ impl CellAttrs {
 
 bitflags::bitflags! {
     /// Style flags for cell attributes
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, Serialize, Deserialize)]
     pub struct AttrFlags: u16 {
         /// Bold text
         const BOLD = 1 << 0;

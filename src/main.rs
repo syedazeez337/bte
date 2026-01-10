@@ -20,6 +20,7 @@ mod replay;
 mod runner;
 mod scenario;
 mod screen;
+mod screenshot;
 mod termination;
 mod timing;
 mod trace;

@@ -251,6 +251,56 @@ pub enum Step {
         /// Pattern that should not be present
         pattern: String,
     },
+
+    /// Capture a screenshot of the current screen state
+    #[serde(rename = "take_screenshot")]
+    TakeScreenshot {
+        /// Output file path (YAML format)
+        path: String,
+        /// Description for the screenshot
+        #[serde(default)]
+        description: Option<String>,
+    },
+
+    /// Assert screen matches a baseline screenshot
+    #[serde(rename = "assert_screenshot")]
+    AssertScreenshot {
+        /// Path to baseline screenshot file
+        path: String,
+        /// Maximum number of different cells to allow
+        #[serde(default = "default_max_diff_cells")]
+        max_differences: usize,
+        /// Regions to ignore (e.g., dynamic content like clocks)
+        #[serde(default)]
+        ignore_regions: Vec<IgnoreRegionConfig>,
+        /// Whether to compare colors (default true)
+        #[serde(default = "default_true")]
+        compare_colors: bool,
+        /// Whether to compare text (default true)
+        #[serde(default = "default_true")]
+        compare_text: bool,
+    },
+}
+
+/// Configuration for an ignore region during screenshot comparison
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IgnoreRegionConfig {
+    /// Top row (inclusive, 0-indexed)
+    pub top: usize,
+    /// Left column (inclusive, 0-indexed)
+    pub left: usize,
+    /// Bottom row (inclusive, 0-indexed)
+    pub bottom: usize,
+    /// Right column (inclusive, 0-indexed)
+    pub right: usize,
+}
+
+fn default_max_diff_cells() -> usize {
+    0
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Scroll direction for mouse scroll events
@@ -267,10 +317,6 @@ fn default_mouse_button() -> u8 {
 
 fn default_scroll_count() -> u8 {
     1
-}
-
-fn default_true() -> bool {
-    true
 }
 
 fn default_max_distance() -> usize {
@@ -823,7 +869,9 @@ steps:
                 | Step::MouseScroll { .. }
                 | Step::WaitScreen { .. }
                 | Step::AssertNotScreen { .. }
-                | Step::WaitForFuzzy { .. } => {}
+                | Step::WaitForFuzzy { .. }
+                | Step::TakeScreenshot { .. }
+                | Step::AssertScreenshot { .. } => {}
             }
         }
     }

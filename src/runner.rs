@@ -640,6 +640,26 @@ fn execute_step(
         } => execute_wait_screen(pattern, *timeout_ms, process, io, screen, timing, config),
 
         Step::AssertNotScreen { pattern } => execute_assert_not_screen(pattern, screen),
+
+        Step::TakeScreenshot { path, description } => {
+            execute_take_screenshot(path, description.clone(), screen, timing)
+        }
+
+        Step::AssertScreenshot {
+            path,
+            max_differences,
+            ignore_regions,
+            compare_colors,
+            compare_text,
+        } => execute_assert_screenshot(
+            path,
+            *max_differences,
+            ignore_regions.clone(),
+            *compare_colors,
+            *compare_text,
+            screen,
+            timing,
+        ),
     }
 }
 
@@ -989,6 +1009,135 @@ fn execute_assert_not_screen(pattern: &str, screen: &Screen) -> StepResult {
         ));
     }
     StepResult::Ok
+}
+
+/// Take a screenshot of the current screen state
+fn execute_take_screenshot(
+    path: &str,
+    description: Option<String>,
+    screen: &Screen,
+    timing: &TimingController,
+) -> StepResult {
+    use crate::screenshot::Screenshot;
+    use std::fs;
+
+    let timestamp = timing.now();
+    let screenshot = Screenshot::from_screen(screen, timestamp);
+
+    let data = match serde_yaml::to_string(&screenshot) {
+        Ok(d) => d,
+        Err(e) => {
+            return StepResult::Error(format!("Failed to serialize screenshot: {}", e));
+        }
+    };
+
+    let mut output = String::new();
+    if let Some(desc) = description {
+        output.push_str(&format!("# Description: {}\n", desc));
+    }
+    output.push_str(&format!("# Taken at tick: {}\n", timestamp));
+    output.push_str(&format!(
+        "# Dimensions: {}x{}\n",
+        screenshot.cols, screenshot.rows
+    ));
+    output.push_str(&format!(
+        "# Cursor: ({},{})\n",
+        screenshot.cursor.0, screenshot.cursor.1
+    ));
+    output.push_str("---\n");
+    output.push_str(&data);
+
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        if !parent.exists() {
+            if let Err(e) = fs::create_dir_all(parent) {
+                return StepResult::Error(format!(
+                    "Failed to create directory for screenshot: {}",
+                    e
+                ));
+            }
+        }
+    }
+
+    if let Err(e) = fs::write(path, &output) {
+        return StepResult::Error(format!("Failed to write screenshot: {}", e));
+    }
+
+    StepResult::Ok
+}
+
+/// Assert screen matches a baseline screenshot
+fn execute_assert_screenshot(
+    path: &str,
+    max_differences: usize,
+    ignore_regions: Vec<crate::scenario::IgnoreRegionConfig>,
+    compare_colors: bool,
+    compare_text: bool,
+    screen: &Screen,
+    timing: &TimingController,
+) -> StepResult {
+    use crate::screenshot::{compare_screenshots, DiffConfig, IgnoreRegion, Screenshot};
+
+    // Load baseline screenshot
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            return StepResult::Error(format!("Failed to read baseline screenshot: {}", e));
+        }
+    };
+
+    let baseline: Screenshot = match serde_yaml::from_str(&content) {
+        Ok(s) => s,
+        Err(e) => {
+            return StepResult::Error(format!("Failed to parse baseline screenshot: {}", e));
+        }
+    };
+
+    // Capture current screen
+    let timestamp = timing.now();
+    let actual = Screenshot::from_screen(screen, timestamp);
+
+    // Build diff config
+    let mut ignore_regions_list = Vec::new();
+    for r in ignore_regions {
+        ignore_regions_list.push(IgnoreRegion::new(r.top, r.left, r.bottom, r.right));
+    }
+
+    let config = DiffConfig {
+        ignore_regions: ignore_regions_list,
+        max_differences,
+        compare_colors,
+        compare_text,
+        compare_cursor: true,
+        diff_char: '?',
+    };
+
+    let result = compare_screenshots(&baseline, &actual, &config);
+
+    if result.matches {
+        StepResult::Ok
+    } else {
+        let mut error_msg = format!(
+            "Screenshot mismatch: {} different cells, similarity={:.2}%",
+            result.different_cells,
+            result.similarity * 100.0
+        );
+
+        if result.size_mismatch {
+            error_msg.push_str(&format!(
+                ", SIZE MISMATCH (baseline={}x{}, actual={}x{})",
+                baseline.cols, baseline.rows, actual.cols, actual.rows
+            ));
+        }
+
+        if result.cursor_mismatch {
+            error_msg.push_str(&format!(
+                ", CURSOR MISMATCH (expected={:?}, actual={:?})",
+                baseline.cursor, actual.cursor
+            ));
+        }
+
+        StepResult::Error(error_msg)
+    }
 }
 
 // ============================================================================
