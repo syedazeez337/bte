@@ -127,7 +127,7 @@ impl PlatformCapabilities {
                 pub256_colors: true,
                 hyperlinks: true,
                 bracketed_paste: true,
-                focus_reporting: false, // Limited support
+                focus_reporting: false,     // Limited support
                 synchronized_output: false, // Limited support
             }
         }
@@ -341,9 +341,7 @@ pub fn get_backend() -> Result<Box<dyn TerminalBackend>, PlatformError> {
                 std::io::ErrorKind::Unsupported,
                 format!("Platform {} is not yet supported", std::env::consts::OS),
             )),
-            kind: PlatformErrorKind::UnsupportedPlatform(
-                std::env::consts::OS.to_string(),
-            ),
+            kind: PlatformErrorKind::UnsupportedPlatform(std::env::consts::OS.to_string()),
         })
     }
 }
@@ -394,8 +392,8 @@ mod linux;
 mod macos;
 
 // Re-export platform types for library users
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-pub use {
-    linux::{LinuxTerminalBackend, LinuxTerminalProcess},
-    macos::{MacOSTerminalBackend, MacOSTerminalProcess},
-};
+#[cfg(target_os = "linux")]
+pub use linux::{LinuxTerminalBackend, LinuxTerminalProcess};
+
+#[cfg(target_os = "macos")]
+pub use macos::{MacOSTerminalBackend, MacOSTerminalProcess};

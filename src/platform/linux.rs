@@ -15,7 +15,7 @@ use nix::sys::termios::{self, LocalFlags, SetArg, Termios};
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::{close, dup2, execvpe, fork, setsid, ForkResult, Pid};
 use std::ffi::CString;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, BorrowedFd, OwnedFd, RawFd};
 
 /// Linux-specific terminal process handle
 pub struct LinuxTerminalProcess {
@@ -27,7 +27,12 @@ pub struct LinuxTerminalProcess {
 }
 
 impl LinuxTerminalProcess {
-    fn new(pid: Pid, master_fd: OwnedFd, original_termios: Option<Termios>, size: TerminalSize) -> Self {
+    fn new(
+        pid: Pid,
+        master_fd: OwnedFd,
+        original_termios: Option<Termios>,
+        size: TerminalSize,
+    ) -> Self {
         Self {
             pid: Some(pid),
             master_fd: Some(master_fd),
@@ -40,29 +45,46 @@ impl LinuxTerminalProcess {
 
 impl TerminalProcess for LinuxTerminalProcess {
     fn write(&mut self, data: &[u8]) -> Result<usize, std::io::Error> {
-        let fd = self.master_fd.as_ref().ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::BrokenPipe, "PTY is closed")
-        })?;
+        let fd = self
+            .master_fd
+            .as_ref()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "PTY is closed"))?;
 
-        match nix::unistd::write(fd.as_raw_fd(), data) {
-            Ok(n) => Ok(n),
-            Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, e)),
+        let fd_raw = fd.as_raw_fd();
+        let result =
+            unsafe { libc::write(fd_raw, data.as_ptr() as *const libc::c_void, data.len()) };
+
+        if result < 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(result as usize)
         }
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, std::io::Error> {
-        let fd = self.master_fd.as_ref().ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::BrokenPipe, "PTY is closed")
-        })?;
+        let fd = self
+            .master_fd
+            .as_ref()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "PTY is closed"))?;
 
-        match nix::unistd::read(fd.as_raw_fd(), buf) {
-            Ok(0) => {
+        let fd_raw = fd.as_raw_fd();
+        let result =
+            unsafe { libc::read(fd_raw, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+
+        match result {
+            0 => {
                 self.eof = true;
                 Ok(0)
             }
-            Ok(n) => Ok(n),
-            Err(e) if e == Errno::EAGAIN || e == Errno::EWOULDBLOCK => Ok(0),
-            Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, e)),
+            n if n < 0 => {
+                let err = std::io::Error::last_os_error();
+                if err.kind() == std::io::ErrorKind::WouldBlock {
+                    Ok(0)
+                } else {
+                    Err(err)
+                }
+            }
+            n => Ok(n as usize),
         }
     }
 
@@ -95,14 +117,18 @@ impl TerminalProcess for LinuxTerminalProcess {
         };
 
         kill(pid, nix_signal).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to send signal: {}", e))
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to send signal: {}", e),
+            )
         })
     }
 
     fn resize(&mut self, cols: u16, rows: u16) -> Result<(), std::io::Error> {
-        let fd = self.master_fd.as_ref().ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::BrokenPipe, "PTY is closed")
-        })?;
+        let fd = self
+            .master_fd
+            .as_ref()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "PTY is closed"))?;
 
         let winsize = Winsize {
             ws_row: rows,
@@ -131,7 +157,10 @@ impl TerminalProcess for LinuxTerminalProcess {
             Ok(WaitStatus::Exited(_, code)) => Ok(ExitStatus::Exited(code)),
             Ok(WaitStatus::Signaled(_, sig, _)) => Ok(ExitStatus::Signaled(sig as i32)),
             Ok(_) => Ok(ExitStatus::Running),
-            Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Wait failed: {}", e))),
+            Err(e) => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Wait failed: {}", e),
+            )),
         }
     }
 
@@ -182,8 +211,9 @@ impl Drop for LinuxTerminalProcess {
 pub struct LinuxTerminalBackend;
 
 impl LinuxTerminalBackend {
-    fn set_raw_mode(fd: std::os::fd::RawFd) -> Result<Option<Termios>, PlatformError> {
-        let mut termios = termios::tcgetattr(fd).map_err(|e| PlatformError {
+    fn set_raw_mode(fd: RawFd) -> Result<Option<Termios>, PlatformError> {
+        let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
+        let mut termios = termios::tcgetattr(&borrowed).map_err(|e| PlatformError {
             source: Box::new(e),
             kind: PlatformErrorKind::PtyAllocation,
         })?;
@@ -197,7 +227,7 @@ impl LinuxTerminalBackend {
         termios.local_flags.remove(LocalFlags::ECHONL);
         termios.local_flags.remove(LocalFlags::ISIG);
 
-        termios::tcsetattr(fd, SetArg::TCSANOW, &termios).map_err(|e| PlatformError {
+        termios::tcsetattr(&borrowed, SetArg::TCSANOW, &termios).map_err(|e| PlatformError {
             source: Box::new(e),
             kind: PlatformErrorKind::PtyAllocation,
         })?;
@@ -252,16 +282,12 @@ impl TerminalBackend for LinuxTerminalBackend {
 
         Self::set_non_blocking(master_fd)?;
 
-        match fork() {
+        match unsafe { fork() } {
             Ok(ForkResult::Parent { child }) => {
                 drop(slave);
 
-                let process = LinuxTerminalProcess::new(
-                    child,
-                    master,
-                    original_termios,
-                    config.size,
-                );
+                let process =
+                    LinuxTerminalProcess::new(child, master, original_termios, config.size);
 
                 Ok(SpawnResult {
                     process: Box::new(process),
@@ -290,13 +316,17 @@ impl TerminalBackend for LinuxTerminalBackend {
                     std::env::set_current_dir(cwd).ok();
                 }
 
-                let program = CString::new(config.program.to_string_lossy().as_bytes())
-                    .map_err(|_| PlatformError {
-                        source: Box::new(std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            "Invalid program path",
-                        )),
-                        kind: PlatformErrorKind::SpawnFailed("Invalid program path".to_string()),
+                let program =
+                    CString::new(config.program.to_string_lossy().as_bytes()).map_err(|_| {
+                        PlatformError {
+                            source: Box::new(std::io::Error::new(
+                                std::io::ErrorKind::InvalidInput,
+                                "Invalid program path",
+                            )),
+                            kind: PlatformErrorKind::SpawnFailed(
+                                "Invalid program path".to_string(),
+                            ),
+                        }
                     })?;
 
                 let mut args: Vec<CString> = Vec::new();

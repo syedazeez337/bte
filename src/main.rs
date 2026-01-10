@@ -12,8 +12,7 @@ mod fuzzy;
 mod invariants;
 mod io_loop;
 mod keys;
-// platform module - infrastructure for future cross-platform support
-// mod platform;
+mod platform;
 mod process;
 mod pty;
 mod replay;
