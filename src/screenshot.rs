@@ -7,7 +7,7 @@
 //! - Support ignore regions for dynamic content (clock, cursor)
 //! - Configure comparison thresholds
 
-use crate::screen::{Cell, CellAttrs, Screen};
+use crate::screen::{Cell, CellAttrs, Color, Screen};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
@@ -381,8 +381,16 @@ mod tests {
         Cell {
             ch,
             attrs: CellAttrs {
-                fg,
-                bg,
+                fg: if fg >= 0 {
+                    Color::Indexed(fg as u16)
+                } else {
+                    Color::Default
+                },
+                bg: if bg >= 0 {
+                    Color::Indexed(bg as u16)
+                } else {
+                    Color::Default
+                },
                 flags: Default::default(),
             },
         }

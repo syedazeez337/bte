@@ -86,13 +86,30 @@ impl Default for Cell {
     }
 }
 
+/// Color specification for terminal cells
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Color {
+    /// Default terminal color
+    Default,
+    /// Standard 8 colors (0-7) or high-intensity (8-15)
+    Indexed(u16),
+    /// Truecolor (24-bit RGB)
+    Rgb(u8, u8, u8),
+}
+
+impl Default for Color {
+    fn default() -> Self {
+        Color::Default
+    }
+}
+
 /// Cell attributes (colors and style flags)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, Serialize, Deserialize)]
 pub struct CellAttrs {
-    /// Foreground color (0-255, or -1 for default)
-    pub fg: i16,
-    /// Background color (0-255, or -1 for default)
-    pub bg: i16,
+    /// Foreground color
+    pub fg: Color,
+    /// Background color
+    pub bg: Color,
     /// Style flags
     pub flags: AttrFlags,
 }
@@ -101,10 +118,20 @@ impl CellAttrs {
     /// Create default attributes
     pub fn new() -> Self {
         Self {
-            fg: -1,
-            bg: -1,
+            fg: Color::Default,
+            bg: Color::Default,
             flags: AttrFlags::empty(),
         }
+    }
+
+    /// Check if this is the default color
+    pub fn is_default_fg(&self) -> bool {
+        matches!(self.fg, Color::Default)
+    }
+
+    /// Check if this is the default background
+    pub fn is_default_bg(&self) -> bool {
+        matches!(self.bg, Color::Default)
     }
 }
 
@@ -589,30 +616,52 @@ impl Screen {
                 27 => self.current_attrs.flags.remove(AttrFlags::INVERSE),
                 28 => self.current_attrs.flags.remove(AttrFlags::HIDDEN),
                 29 => self.current_attrs.flags.remove(AttrFlags::STRIKETHROUGH),
-                // Foreground colors
-                30..=37 => self.current_attrs.fg = (params[i] - 30) as i16,
+                // Standard foreground colors (0-7)
+                30..=37 => self.current_attrs.fg = Color::Indexed(params[i] - 30),
                 38 => {
                     // Extended foreground color
-                    if i + 2 < params.len() && params[i + 1] == 5 {
-                        self.current_attrs.fg = params[i + 2] as i16;
-                        i += 2;
+                    if i + 1 < params.len() {
+                        if params[i + 1] == 5 && i + 2 < params.len() {
+                            // 256-color: 38;5;N
+                            self.current_attrs.fg = Color::Indexed(params[i + 2]);
+                            i += 2;
+                        } else if params[i + 1] == 2 && i + 4 < params.len() {
+                            // Truecolor: 38;2;R;G;B
+                            self.current_attrs.fg = Color::Rgb(
+                                params[i + 2] as u8,
+                                params[i + 3] as u8,
+                                params[i + 4] as u8,
+                            );
+                            i += 4;
+                        }
                     }
                 }
-                39 => self.current_attrs.fg = -1, // Default foreground
-                // Background colors
-                40..=47 => self.current_attrs.bg = (params[i] - 40) as i16,
+                39 => self.current_attrs.fg = Color::Default, // Default foreground
+                // Standard background colors (0-7)
+                40..=47 => self.current_attrs.bg = Color::Indexed(params[i] - 40),
                 48 => {
                     // Extended background color
-                    if i + 2 < params.len() && params[i + 1] == 5 {
-                        self.current_attrs.bg = params[i + 2] as i16;
-                        i += 2;
+                    if i + 1 < params.len() {
+                        if params[i + 1] == 5 && i + 2 < params.len() {
+                            // 256-color: 48;5;N
+                            self.current_attrs.bg = Color::Indexed(params[i + 2]);
+                            i += 2;
+                        } else if params[i + 1] == 2 && i + 4 < params.len() {
+                            // Truecolor: 48;2;R;G;B
+                            self.current_attrs.bg = Color::Rgb(
+                                params[i + 2] as u8,
+                                params[i + 3] as u8,
+                                params[i + 4] as u8,
+                            );
+                            i += 4;
+                        }
                     }
                 }
-                49 => self.current_attrs.bg = -1, // Default background
-                // Bright foreground colors
-                90..=97 => self.current_attrs.fg = (params[i] - 90 + 8) as i16,
-                // Bright background colors
-                100..=107 => self.current_attrs.bg = (params[i] - 100 + 8) as i16,
+                49 => self.current_attrs.bg = Color::Default, // Default background
+                // Bright foreground colors (8-15)
+                90..=97 => self.current_attrs.fg = Color::Indexed(params[i] - 90 + 8),
+                // Bright background colors (8-15)
+                100..=107 => self.current_attrs.bg = Color::Indexed(params[i] - 100 + 8),
                 _ => {}
             }
             i += 1;
@@ -1149,7 +1198,7 @@ mod tests {
 
         let cell = screen.get_cell(0, 0).unwrap();
         assert!(cell.attrs.flags.contains(AttrFlags::BOLD));
-        assert_eq!(cell.attrs.fg, 1); // Red is color 1
+        assert_eq!(cell.attrs.fg, Color::Indexed(1)); // Red is color 1
     }
 
     #[test]
@@ -1200,13 +1249,13 @@ mod tests {
         let styled = screen.get_cell(0, 0).unwrap();
         assert!(styled.attrs.flags.contains(AttrFlags::BOLD));
         assert!(styled.attrs.flags.contains(AttrFlags::UNDERLINE));
-        assert_eq!(styled.attrs.fg, 1);
+        assert_eq!(styled.attrs.fg, Color::Indexed(1));
 
         // "Normal" starts at column 6
         let normal = screen.get_cell(0, 6).unwrap();
         assert!(!normal.attrs.flags.contains(AttrFlags::BOLD));
         assert!(!normal.attrs.flags.contains(AttrFlags::UNDERLINE));
-        assert_eq!(normal.attrs.fg, -1); // Default
+        assert_eq!(normal.attrs.fg, Color::Default); // Default
     }
 
     #[test]
