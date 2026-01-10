@@ -798,7 +798,11 @@ steps:
                 | Step::Resize { .. }
                 | Step::AssertCursor { .. }
                 | Step::Snapshot { .. }
-                | Step::CheckInvariant { .. } => {}
+                | Step::CheckInvariant { .. }
+                | Step::MouseClick { .. }
+                | Step::MouseScroll { .. }
+                | Step::WaitScreen { .. }
+                | Step::AssertNotScreen { .. } => {}
             }
         }
     }

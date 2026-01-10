@@ -11,6 +11,8 @@ mod determinism;
 mod invariants;
 mod io_loop;
 mod keys;
+// platform module - infrastructure for future cross-platform support
+// mod platform;
 mod process;
 mod pty;
 mod replay;
@@ -100,7 +102,10 @@ fn run() -> Result<i32> {
     // Platform detection and warning
     if !cfg!(target_os = "linux") {
         eprintln!("[WARNING] BTE is currently optimized for Linux.");
-        eprintln!("[WARNING] Some features may not work correctly on {}", std::env::consts::OS);
+        eprintln!(
+            "[WARNING] Some features may not work correctly on {}",
+            std::env::consts::OS
+        );
         eprintln!("[WARNING] See FUTURE.md for macOS/Windows roadmap.");
     }
 

@@ -236,7 +236,9 @@ impl BuiltInInvariant {
                 *should_contain,
                 *expected_row,
                 *expected_col,
-                description.clone().or(Some(format!("Custom invariant: {}", name))),
+                description
+                    .clone()
+                    .or(Some(format!("Custom invariant: {}", name))),
             )),
         }
     }

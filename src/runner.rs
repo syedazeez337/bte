@@ -271,7 +271,9 @@ fn build_invariant_engine(invariants: &[InvariantRef]) -> InvariantEngine {
                 should_contain: *should_contain,
                 expected_row: *expected_row,
                 expected_col: *expected_col,
-                description: description.clone().or(Some(format!("Custom invariant: {}", name))),
+                description: description
+                    .clone()
+                    .or(Some(format!("Custom invariant: {}", name))),
             }),
         })
         .collect();
@@ -808,7 +810,12 @@ fn execute_mouse_scroll(
         // CSI M Cb Cx Cy (button press)
         let press_seq = format!("\x1b[M{}{}{}", button as char, cxx as char, cxy as char);
         // CSI M Cb Cx Cy (button release - button + 3)
-        let release_seq = format!("\x1b[M{}{}{}", (button + 3) as char, cxx as char, cxy as char);
+        let release_seq = format!(
+            "\x1b[M{}{}{}",
+            (button + 3) as char,
+            cxx as char,
+            cxy as char
+        );
 
         if let Err(e) = keys.inject_raw(press_seq.as_bytes()) {
             return StepResult::Error(format!("Failed to send scroll press: {}", e));
