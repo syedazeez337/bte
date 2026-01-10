@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 mod ansi;
 mod determinism;
+mod fuzzy;
 mod invariants;
 mod io_loop;
 mod keys;

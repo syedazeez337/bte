@@ -128,6 +128,22 @@ pub enum Step {
         ticks: u64,
     },
 
+    /// Wait for output approximately matching a pattern (fuzzy matching)
+    #[serde(rename = "wait_for_fuzzy")]
+    WaitForFuzzy {
+        /// Pattern to match (approximate)
+        pattern: String,
+        /// Maximum edit distance (Levenshtein) for a match
+        #[serde(default = "default_max_distance")]
+        max_distance: usize,
+        /// Minimum similarity ratio (0.0 to 1.0), overrides max_distance if set
+        #[serde(default)]
+        min_similarity: Option<f64>,
+        /// Timeout in milliseconds
+        #[serde(default)]
+        timeout_ms: Option<u64>,
+    },
+
     /// Send keystrokes
     #[serde(rename = "send_keys")]
     SendKeys {
@@ -255,6 +271,10 @@ fn default_scroll_count() -> u8 {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_max_distance() -> usize {
+    3
 }
 
 /// Key sequence to send
@@ -802,7 +822,8 @@ steps:
                 | Step::MouseClick { .. }
                 | Step::MouseScroll { .. }
                 | Step::WaitScreen { .. }
-                | Step::AssertNotScreen { .. } => {}
+                | Step::AssertNotScreen { .. }
+                | Step::WaitForFuzzy { .. } => {}
             }
         }
     }

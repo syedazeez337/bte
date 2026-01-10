@@ -568,6 +568,23 @@ fn execute_step(
             timeout_ms,
         } => execute_wait_for(pattern, *timeout_ms, process, io, screen, timing, config),
 
+        Step::WaitForFuzzy {
+            pattern,
+            max_distance,
+            min_similarity,
+            timeout_ms,
+        } => execute_wait_for_fuzzy(
+            pattern,
+            *max_distance,
+            *min_similarity,
+            *timeout_ms,
+            process,
+            io,
+            screen,
+            timing,
+            config,
+        ),
+
         Step::WaitTicks { ticks } => {
             let _ = timing.wait_ticks(*ticks);
             StepResult::Ok
@@ -686,6 +703,96 @@ fn execute_wait_for(
                 ticks_waited, timeout_ticks, has_pattern
             );
         }
+    }
+}
+
+/// Execute fuzzy wait - waits for output approximately matching a pattern
+fn execute_wait_for_fuzzy(
+    pattern: &str,
+    max_distance: usize,
+    min_similarity: Option<f64>,
+    timeout_ms: Option<u64>,
+    process: &mut PtyProcess,
+    io: &mut IoLoop,
+    screen: &mut Screen,
+    timing: &mut TimingController,
+    config: &RunnerConfig,
+) -> StepResult {
+    use crate::fuzzy::contains_fuzzy;
+
+    let timeout_ticks = timeout_ms.unwrap_or(5000) / 10;
+    let effective_max_distance = if let Some(similarity) = min_similarity {
+        // Calculate max distance from similarity threshold
+        // If similarity >= threshold, distance is acceptable
+        // We use a dynamic calculation: for 90% similarity, max distance is 10% of pattern length
+        let pattern_len = pattern.chars().count();
+        let threshold_distance = (pattern_len as f64 * (1.0 - similarity)) as usize;
+        threshold_distance.max(max_distance)
+    } else {
+        max_distance
+    };
+
+    let mut ticks_waited = 0u64;
+    if config.verbose {
+        eprintln!(
+            "[DEBUG] wait_for_fuzzy started: pattern='{}', max_distance={}, timeout_ticks={}",
+            pattern, effective_max_distance, timeout_ticks
+        );
+    }
+
+    loop {
+        if ticks_waited > timeout_ticks {
+            let screen_text = screen.text();
+            let preview = truncate_screen_preview(&screen_text);
+            if config.verbose {
+                eprintln!(
+                    "[DEBUG] wait_for_fuzzy TIMEOUT: ticks_waited={}, pattern='{}'",
+                    ticks_waited, pattern
+                );
+                eprintln!("[DEBUG] Screen preview: {}", preview);
+            }
+            return StepResult::Error(format!(
+                "Timeout waiting for fuzzy pattern: {} (max_distance={})",
+                pattern, effective_max_distance
+            ));
+        }
+
+        let _ = io.read_available(process);
+        let output = io.take_output();
+        screen.process(&output);
+
+        let screen_text = screen.text();
+
+        // Check for fuzzy match
+        if let Some(fuzzy_match) = contains_fuzzy(&screen_text, pattern, effective_max_distance) {
+            let actual_similarity = fuzzy_match.similarity;
+            let distance = fuzzy_match.distance;
+
+            if config.verbose {
+                eprintln!(
+                    "[DEBUG] wait_for_fuzzy found match after {} ticks: distance={}, similarity={:.2}",
+                    ticks_waited, distance, actual_similarity
+                );
+            }
+
+            if let Some(threshold) = min_similarity {
+                if actual_similarity < threshold {
+                    if config.verbose {
+                        eprintln!(
+                            "[DEBUG] wait_for_fuzzy similarity {:.2} below threshold {:.2}, continuing",
+                            actual_similarity, threshold
+                        );
+                    }
+                } else {
+                    return StepResult::Ok;
+                }
+            } else {
+                return StepResult::Ok;
+            }
+        }
+
+        let _ = timing.wait_ticks(1);
+        ticks_waited += 1;
     }
 }
 
