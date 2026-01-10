@@ -3,7 +3,7 @@
 //! This module provides a 2D grid model for terminal memory,
 //! with scrollback buffer, cursor tracking, and dirty line management.
 
-use crate::ansi::{AnsiEvent, AnsiParser, CsiSequence, EscSequence};
+use crate::ansi::{AnsiEvent, AnsiParser, CsiSequence, EscSequence, OscSequence};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
@@ -55,6 +55,9 @@ pub struct Cell {
     pub ch: char,
     /// Cell attributes (foreground color, background color, flags)
     pub attrs: CellAttrs,
+    /// Hyperlink URI (OSC 8), if present
+    #[serde(default)]
+    pub hyperlink: Option<String>,
 }
 
 impl Cell {
@@ -63,6 +66,7 @@ impl Cell {
         Self {
             ch: ' ',
             attrs: CellAttrs::default(),
+            hyperlink: None,
         }
     }
 
@@ -71,12 +75,13 @@ impl Cell {
         Self {
             ch,
             attrs: CellAttrs::default(),
+            hyperlink: None,
         }
     }
 
     /// Check if this cell is empty (space with default attributes)
     pub fn is_empty(&self) -> bool {
-        self.ch == ' ' && self.attrs == CellAttrs::default()
+        self.ch == ' ' && self.attrs == CellAttrs::default() && self.hyperlink.is_none()
     }
 }
 
@@ -258,6 +263,8 @@ pub struct Screen {
     saved_cursor: Option<Cursor>,
     /// Current cell attributes for new characters
     current_attrs: CellAttrs,
+    /// Current hyperlink URI (OSC 8), if active
+    current_hyperlink: Option<String>,
     /// Whether we're in alternate screen mode
     alternate_screen: bool,
     /// Saved primary screen (when in alternate mode)
@@ -285,6 +292,7 @@ impl Screen {
             cursor: Cursor::new(),
             saved_cursor: None,
             current_attrs: CellAttrs::new(),
+            current_hyperlink: None,
             alternate_screen: false,
             saved_primary: None,
             scroll_region: (0, rows.saturating_sub(1)),
@@ -381,10 +389,45 @@ impl Screen {
             AnsiEvent::Execute(code) => self.execute(code),
             AnsiEvent::Csi(csi) => self.handle_csi(csi),
             AnsiEvent::Esc(esc) => self.handle_esc(esc),
-            AnsiEvent::Osc(_) => {} // Ignore OSC for now
+            AnsiEvent::Osc(osc) => self.handle_osc(osc),
             AnsiEvent::Dcs(_) => {} // Ignore DCS for now
             AnsiEvent::Apc(_) => {} // Ignore APC for now
         }
+    }
+
+    /// Handle OSC (Operating System Command) sequences
+    fn handle_osc(&mut self, osc: OscSequence) {
+        // OSC 8 - Hyperlink
+        // Format: OSC 8 ; params ; URI ST
+        // Empty URI (OSC 8;;ST) clears the hyperlink
+        if osc.command == 8 {
+            // Parse the params and URI
+            // Format is: ;params;URI or ;;URI or ;params;
+            let parts: Vec<&str> = osc.data.split(';').collect();
+
+            let uri = if parts.len() >= 3 {
+                // Has params and URI
+                parts[2]
+            } else if parts.len() == 2 {
+                // Has URI (possibly empty params)
+                parts[1]
+            } else if parts.len() == 1 {
+                // Empty URI
+                parts[0]
+            } else {
+                // No URI at all
+                ""
+            };
+
+            if uri.is_empty() {
+                // Clear hyperlink
+                self.current_hyperlink = None;
+            } else {
+                // Set hyperlink
+                self.current_hyperlink = Some(uri.to_string());
+            }
+        }
+        // Other OSC commands are ignored
     }
 
     /// Print a character at the cursor position
@@ -403,6 +446,7 @@ impl Screen {
             if let Some(cell) = row.get_mut(self.cursor.col) {
                 cell.ch = ch;
                 cell.attrs = self.current_attrs;
+                cell.hyperlink = self.current_hyperlink.clone();
             }
         }
 

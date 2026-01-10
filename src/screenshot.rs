@@ -393,6 +393,7 @@ mod tests {
                 },
                 flags: Default::default(),
             },
+            hyperlink: None,
         }
     }
 
