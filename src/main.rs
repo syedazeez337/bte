@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 mod ansi;
+mod bench;
 mod determinism;
 mod fuzzy;
 mod invariants;
