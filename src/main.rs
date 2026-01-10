@@ -9,6 +9,7 @@ use std::path::PathBuf;
 mod ansi;
 mod bench;
 mod determinism;
+mod flaky;
 mod fuzzy;
 mod invariants;
 mod io_loop;
