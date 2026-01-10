@@ -41,6 +41,27 @@ pub struct Scenario {
     /// Timeout in milliseconds
     #[serde(default)]
     pub timeout_ms: Option<u64>,
+
+    /// Tags for filtering and organization
+    #[serde(default)]
+    pub tags: Vec<Tag>,
+}
+
+impl Default for Scenario {
+    fn default() -> Self {
+        Self {
+            name: Default::default(),
+            description: Default::default(),
+            command: Command::Simple(Default::default()),
+            terminal: Default::default(),
+            env: Default::default(),
+            steps: Default::default(),
+            invariants: Default::default(),
+            seed: Default::default(),
+            timeout_ms: Default::default(),
+            tags: Default::default(),
+        }
+    }
 }
 
 /// Command to execute
@@ -75,6 +96,39 @@ impl Command {
                 result.extend(args.clone());
                 result
             }
+        }
+    }
+}
+
+/// A tag for categorizing and filtering scenarios
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tag {
+    /// Tag name (e.g., "slow", "network", "integration")
+    pub name: String,
+    /// Tag category (e.g., "type", "priority", "component")
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Optional metadata associated with the tag
+    #[serde(default)]
+    pub metadata: std::collections::HashMap<String, String>,
+}
+
+impl Tag {
+    /// Create a simple tag with just a name
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            category: None,
+            metadata: Default::default(),
+        }
+    }
+
+    /// Create a tag with a category
+    pub fn with_category(name: &str, category: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            category: Some(category.to_string()),
+            metadata: Default::default(),
         }
     }
 }
@@ -730,6 +784,7 @@ steps:
             invariants: vec![],
             seed: None,
             timeout_ms: None,
+            tags: vec![],
         };
 
         let result = scenario.validate();
@@ -750,6 +805,7 @@ steps:
             invariants: vec![],
             seed: None,
             timeout_ms: None,
+            tags: vec![],
         };
 
         let result = scenario.validate();
@@ -776,6 +832,7 @@ steps:
             invariants: vec![InvariantRef::CursorBounds],
             seed: Some(42),
             timeout_ms: Some(5000),
+            tags: vec![],
         };
 
         assert!(scenario.validate().is_ok());
@@ -810,6 +867,7 @@ steps:
             invariants: vec![],
             seed: None,
             timeout_ms: None,
+            tags: vec![],
         };
 
         let scenario2 = Scenario {
@@ -822,6 +880,7 @@ steps:
             invariants: vec![],
             seed: None,
             timeout_ms: None,
+            tags: vec![],
         };
 
         // Both should serialize to readable YAML that can be diffed
@@ -910,6 +969,7 @@ steps:
             invariants: vec![InvariantRef::CursorBounds],
             seed: Some(12345),
             timeout_ms: Some(5000),
+            tags: vec![],
         };
 
         let yaml = scenario._to_yaml().unwrap();

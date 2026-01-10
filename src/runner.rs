@@ -1182,6 +1182,7 @@ mod tests {
             invariants: vec![],
             seed: Some(42),
             timeout_ms: Some(1000),
+            tags: vec![],
         };
 
         let config = RunnerConfig {
@@ -1219,6 +1220,7 @@ mod tests {
             invariants: vec![crate::scenario::InvariantRef::CursorBounds],
             seed: Some(42),
             timeout_ms: Some(1000),
+            tags: vec![],
         };
 
         let config = RunnerConfig {
@@ -1246,6 +1248,7 @@ mod tests {
             invariants: vec![],
             seed: Some(42),
             timeout_ms: Some(1000),
+            tags: vec![],
         };
 
         let temp_path = "/tmp/bte_test_trace.json";

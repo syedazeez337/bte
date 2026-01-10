@@ -22,6 +22,7 @@ mod runner;
 mod scenario;
 mod screen;
 mod screenshot;
+mod tags;
 mod termination;
 mod timing;
 mod trace;

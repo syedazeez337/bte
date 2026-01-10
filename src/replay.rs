@@ -574,6 +574,7 @@ mod tests {
             invariants: vec![],
             seed: Some(42),
             timeout_ms: Some(10000),
+            tags: vec![],
         };
 
         let mut builder = TraceBuilder::new(scenario, 42, (80, 24));
@@ -605,6 +606,7 @@ mod tests {
             invariants: vec![],
             seed: Some(42),
             timeout_ms: Some(10000),
+            tags: vec![],
         };
 
         let mut builder = TraceBuilder::new(scenario, 42, (80, 24));
@@ -651,6 +653,7 @@ mod tests {
             invariants: vec![],
             seed: Some(42),
             timeout_ms: Some(10000),
+            tags: vec![],
         };
 
         let mut builder = TraceBuilder::new(scenario, 42, (80, 24));

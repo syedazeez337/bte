@@ -606,6 +606,7 @@ mod tests {
             invariants: vec![],
             seed: Some(42),
             timeout_ms: Some(5000),
+            tags: vec![],
         }
     }
 
@@ -1019,6 +1020,7 @@ mod sparse_replay_tests {
             invariants: vec![],
             seed: Some(42),
             timeout_ms: Some(1000),
+            tags: vec![],
         }
     }
 
@@ -1419,6 +1421,7 @@ mod sparse_trace_tests {
             invariants: vec![],
             seed: Some(42),
             timeout_ms: Some(1000),
+            tags: vec![],
         }
     }
 
@@ -1548,6 +1551,7 @@ mod sparse_trace_stress_tests {
             invariants: vec![],
             seed: Some(42),
             timeout_ms: Some(10000),
+            tags: vec![],
         }
     }
 
