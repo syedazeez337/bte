@@ -50,16 +50,16 @@ pub struct Scenario {
 impl Default for Scenario {
     fn default() -> Self {
         Self {
-            name: Default::default(),
-            description: Default::default(),
-            command: Command::Simple(Default::default()),
-            terminal: Default::default(),
-            env: Default::default(),
-            steps: Default::default(),
-            invariants: Default::default(),
-            seed: Default::default(),
-            timeout_ms: Default::default(),
-            tags: Default::default(),
+            name: "unnamed-scenario".to_string(),
+            description: String::new(),
+            command: Command::Simple(String::new()),
+            terminal: TerminalConfig::default(),
+            env: HashMap::new(),
+            steps: Vec::new(),
+            invariants: Vec::new(),
+            seed: None,
+            timeout_ms: Some(30000), // 30 second default timeout
+            tags: Vec::new(),
         }
     }
 }
@@ -81,6 +81,7 @@ pub enum Command {
 }
 
 impl Command {
+    /// Get the program to execute
     pub fn program(&self) -> &str {
         match self {
             Command::Simple(_) => "/bin/sh",
@@ -88,6 +89,10 @@ impl Command {
         }
     }
 
+    /// Get the arguments for execution.
+    ///
+    /// For simple commands, this uses sh -c with proper escaping.
+    /// For full commands, this constructs the argument vector directly.
     pub fn args(&self) -> Vec<String> {
         match self {
             Command::Simple(s) => vec!["sh".to_string(), "-c".to_string(), s.clone()],
@@ -97,6 +102,60 @@ impl Command {
                 result
             }
         }
+    }
+
+    /// Get the command as a single shell-safe string.
+    ///
+    /// For simple commands, returns the command as-is.
+    /// For full commands, constructs a shell-escaped command string.
+    ///
+    /// This can be used with `sh -c "..."` for execution.
+    pub fn shell_command(&self) -> String {
+        match self {
+            Command::Simple(s) => s.clone(),
+            Command::Full { program, args, cwd: _ } => {
+                // Build a shell-escaped command
+                let mut cmd = String::new();
+                cmd.push_str(&shell_escape(program));
+                for arg in args {
+                    cmd.push(' ');
+                    cmd.push_str(&shell_escape(arg));
+                }
+                cmd
+            }
+        }
+    }
+}
+
+/// Escape a string for safe shell embedding.
+///
+/// This uses single-quote escaping, which is the safest method
+/// for arbitrary strings. Single quotes around the entire string
+/// protect all characters except single quotes themselves.
+/// To include a single quote, we end the string, add an escaped quote,
+/// and start a new string.
+fn shell_escape(s: &str) -> String {
+    if s.contains('\'') {
+        // Split and reconstruct with escaped single quotes
+        // sh doesn't have good ways to escape ' inside ', so we use: '...'\''...'
+        let mut result = String::with_capacity(s.len() + s.len() / 2 + 4);
+        result.push('\'');
+        for c in s.chars() {
+            if c == '\'' {
+                result.push('\'');
+                result.push('\\');
+                result.push('\'');
+                result.push('\'');
+            } else {
+                result.push(c);
+            }
+        }
+        result.push('\'');
+        result
+    } else if s.is_empty() {
+        "''".to_string()
+    } else {
+        format!("'{}'", s)
     }
 }
 
@@ -552,8 +611,8 @@ pub enum InvariantRef {
     },
 
     /// Screen must be stable (not changing)
-    #[serde(rename = "screen_stability")]
-    ScreenStability {
+    #[serde(rename = "screen_stable")]
+    ScreenStable {
         /// Minimum ticks of stability required
         #[serde(default = "default_stable_ticks")]
         min_ticks: u64,
@@ -670,6 +729,9 @@ impl Scenario {
             });
         }
 
+        // Validate tags
+        self.validate_tags(&mut errors);
+
         // Validate steps
         if self.steps.is_empty() {
             errors.push(ValidationError {
@@ -686,6 +748,39 @@ impl Scenario {
             Ok(())
         } else {
             Err(errors)
+        }
+    }
+
+    /// Validate scenario tags
+    fn validate_tags(&self, errors: &mut Vec<ValidationError>) {
+        use std::collections::HashSet;
+
+        let mut seen: HashSet<(Option<&String>, &String)> = HashSet::new();
+
+        for (i, tag) in self.tags.iter().enumerate() {
+            let key = (tag.category.as_ref(), &tag.name);
+
+            // Check for empty tag name
+            if tag.name.trim().is_empty() {
+                errors.push(ValidationError {
+                    message: "Tag name cannot be empty".to_string(),
+                    path: format!("tags[{}].name", i),
+                });
+            }
+
+            // Check for duplicate tags (same name + category)
+            if !seen.insert(key) {
+                errors.push(ValidationError {
+                    message: format!(
+                        "Duplicate tag: '{}'{}",
+                        tag.name,
+                        tag.category.as_ref()
+                            .map(|c| format!(" (category: {})", c))
+                            .unwrap_or_else(|| "".to_string())
+                    ),
+                    path: format!("tags[{}]", i),
+                });
+            }
         }
     }
 
@@ -978,5 +1073,21 @@ steps:
         assert_eq!(scenario.name, parsed.name);
         assert_eq!(scenario.terminal.cols, parsed.terminal.cols);
         assert_eq!(scenario.seed, parsed.seed);
+    }
+
+    #[test]
+    fn shell_escape_basic() {
+        assert_eq!(super::shell_escape("hello"), "'hello'");
+        assert_eq!(super::shell_escape("hello world"), "'hello world'");
+    }
+
+    #[test]
+    fn shell_escape_with_quotes() {
+        assert_eq!(super::shell_escape("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn shell_escape_empty() {
+        assert_eq!(super::shell_escape(""), "''");
     }
 }

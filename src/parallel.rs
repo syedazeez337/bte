@@ -10,8 +10,8 @@ use crate::runner::{run_scenario, RunnerConfig};
 use crate::scenario::Scenario;
 use rayon::prelude::*;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Result of a parallel test execution
@@ -96,91 +96,124 @@ pub fn run_parallel(
     config: &ParallelConfig,
 ) -> ParallelResult {
     let start_time = Instant::now();
-    let results = Arc::new(Mutex::new(Vec::new()));
-    let counter = Arc::new(AtomicUsize::new(0));
-    let failed_count = Arc::new(AtomicUsize::new(0));
     let total = scenarios.len();
 
-    // Use rayon for parallel execution with configurable parallelism
-    let parallel_results: Vec<ScenarioResult> = scenarios
-        .par_iter()
-        .map(|(scenario, path)| {
-            let run_idx = counter.fetch_add(1, Ordering::SeqCst);
+    // Collect results directly into a Vec - rayon handles parallel collection efficiently
+    // No need for Mutex contention since we're collecting into a local Vec
+    let local_results: Vec<ScenarioResult> = if config.fail_fast {
+        // fail_fast: use atomic flag to signal other workers to stop on first failure
+        let has_failed = Arc::new(AtomicBool::new(false));
 
-            // Check if we should stop due to fail_fast
-            if config.fail_fast && failed_count.load(Ordering::SeqCst) > 0 {
-                return ScenarioResult {
+        scenarios
+            .par_iter()
+            .map(|(scenario, path)| {
+                // Check if another worker has already failed - early exit
+                // Use Acquire ordering to ensure we see all writes from the thread
+                // that set the flag (including the scenario result data)
+                if has_failed.load(Ordering::Acquire) {
+                    return ScenarioResult {
+                        name: scenario.name.clone(),
+                        path: path.clone(),
+                        passed: false,
+                        exit_code: 0,
+                        duration: Duration::ZERO,
+                        error: Some("Skipped due to fail_fast".to_string()),
+                        steps_executed: 0,
+                    };
+                }
+
+                let scenario_start = Instant::now();
+
+                let runner_config = RunnerConfig {
+                    seed: config.seed.or(scenario.seed),
+                    verbose: config.runner_config.verbose,
+                    max_ticks: config.runner_config.max_ticks,
+                    tick_delay_ms: config.runner_config.tick_delay_ms,
+                    trace_path: config.runner_config.trace_path.clone(),
+                };
+
+                let result = run_scenario(scenario, &runner_config);
+                let duration = scenario_start.elapsed();
+                let passed = result.exit_code == 0;
+
+                // If this scenario failed, signal other workers to stop
+                // Use Release ordering to ensure all our writes are visible
+                // to other threads before they see the flag set
+                if !passed {
+                    has_failed.store(true, Ordering::Release);
+                }
+
+                ScenarioResult {
                     name: scenario.name.clone(),
                     path: path.clone(),
-                    passed: false,
-                    exit_code: 0,
-                    duration: Duration::ZERO,
-                    error: Some("Skipped due to fail_fast".to_string()),
-                    steps_executed: 0,
+                    passed,
+                    exit_code: result.exit_code,
+                    duration,
+                    error: if !passed {
+                        Some(format!("Exit code: {}", result.exit_code))
+                    } else {
+                        None
+                    },
+                    steps_executed: result.trace.steps.len(),
+                }
+            })
+            .collect()
+    } else {
+        // Normal parallel execution without fail_fast
+        scenarios
+            .par_iter()
+            .map(|(scenario, path)| {
+                let scenario_start = Instant::now();
+
+                let runner_config = RunnerConfig {
+                    seed: config.seed.or(scenario.seed),
+                    verbose: config.runner_config.verbose,
+                    max_ticks: config.runner_config.max_ticks,
+                    tick_delay_ms: config.runner_config.tick_delay_ms,
+                    trace_path: config.runner_config.trace_path.clone(),
                 };
-            }
 
-            let scenario_start = Instant::now();
+                let result = run_scenario(scenario, &runner_config);
+                let duration = scenario_start.elapsed();
 
-            // Create config for this scenario
-            let runner_config = RunnerConfig {
-                seed: config.seed.or(scenario.seed),
-                verbose: config.runner_config.verbose,
-                max_ticks: config.runner_config.max_ticks,
-                tick_delay_ms: config.runner_config.tick_delay_ms,
-                trace_path: config.runner_config.trace_path.clone(),
-            };
-
-            let result = run_scenario(scenario, &runner_config);
-
-            let duration = scenario_start.elapsed();
-
-            let scenario_result = ScenarioResult {
-                name: scenario.name.clone(),
-                path: path.clone(),
-                passed: result.exit_code == 0,
-                exit_code: result.exit_code,
-                duration,
-                error: if result.exit_code != 0 {
-                    Some(format!("Exit code: {}", result.exit_code))
-                } else {
-                    None
-                },
-                steps_executed: result.trace.steps.len(),
-            };
-
-            // Track failures for fail_fast
-            if !scenario_result.passed {
-                failed_count.fetch_add(1, Ordering::SeqCst);
-            }
-
-            // Store result
-            {
-                let mut results = results.lock().unwrap();
-                results.push(scenario_result.clone());
-            }
-
-            scenario_result
-        })
-        .collect();
+                ScenarioResult {
+                    name: scenario.name.clone(),
+                    path: path.clone(),
+                    passed: result.exit_code == 0,
+                    exit_code: result.exit_code,
+                    duration,
+                    error: if result.exit_code != 0 {
+                        Some(format!("Exit code: {}", result.exit_code))
+                    } else {
+                        None
+                    },
+                    steps_executed: result.trace.steps.len(),
+                }
+            })
+            .collect()
+    };
 
     let duration = start_time.elapsed();
 
-    // Aggregate results
-    let passed = parallel_results.iter().filter(|r| r.passed).count();
-    let failed = parallel_results.iter().filter(|r| !r.passed).count();
-    let skipped = parallel_results
+    // Aggregate results - skipped are separate from failed to avoid double-counting
+    let passed_count = local_results.iter().filter(|r| r.passed).count();
+    let skipped_count = local_results
         .iter()
         .filter(|r| r.error.as_ref().map_or(false, |e| e.contains("Skipped")))
+        .count();
+    // Failed = not passed AND not skipped
+    let failed_count = local_results
+        .iter()
+        .filter(|r| !r.passed && r.error.as_ref().map_or(true, |e| !e.contains("Skipped")))
         .count();
 
     ParallelResult {
         total,
-        passed,
-        failed,
-        skipped,
+        passed: passed_count,
+        failed: failed_count,
+        skipped: skipped_count,
         duration,
-        results: parallel_results,
+        results: local_results,
     }
 }
 
@@ -369,8 +402,17 @@ steps:
         let config = ParallelConfig::default();
         let result = run_parallel(&scenarios, &config);
 
+        // Verify basic result structure
         assert_eq!(result.total, 1);
-        assert!(result.passed >= 1 || result.failed >= 1); // Either pass or fail is ok
+        assert_eq!(result.results.len(), 1);
+
+        // Verify the result has valid fields
+        let scenario_result = &result.results[0];
+        assert_eq!(scenario_result.name, "Test Scenario 1");
+        assert!(scenario_result.duration >= Duration::ZERO);
+        assert!(scenario_result.steps_executed >= 0);
+        // Either passed or failed - we can't guarantee which without controlling the shell
+        assert!(result.passed + result.failed + result.skipped == 1);
     }
 
     #[test]

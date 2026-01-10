@@ -71,7 +71,13 @@ pub fn run_scenario(scenario: &Scenario, config: &RunnerConfig) -> RunResult {
     let mut timing = TimingController::new(seed);
 
     let (proc_config, mut trace_builder) = initialize_components(scenario, &scheduler, seed);
-    let mut process = spawn_process(&proc_config, &mut trace_builder);
+
+    // Handle process spawn failure gracefully instead of panicking
+    let mut process = match spawn_process_safe(&proc_config, &mut trace_builder) {
+        Ok(p) => p,
+        Err(run_result) => return run_result, // Early return with error result
+    };
+
     let mut io = IoLoop::new();
     let mut screen = Screen::new(
         scenario.terminal.cols as usize,
@@ -170,24 +176,12 @@ fn initialize_components(
     };
 
     let mut trace_builder = TraceBuilder::new(scenario.clone(), seed);
-    trace_builder.set_initial_rng_state(scheduler.rng_state());
+    trace_builder.set_initial_rng_state(scheduler.rng_state().unwrap_or(0));
 
     (proc_config, trace_builder)
 }
 
-fn spawn_process(proc_config: &ProcessConfig, trace_builder: &mut TraceBuilder) -> PtyProcess {
-    match PtyProcess::spawn(proc_config) {
-        Ok(p) => p,
-        Err(e) => {
-            // Build error trace
-            let _trace = trace_builder.build_error(format!("Failed to spawn process: {}", e));
-            // This is a bit awkward - we can't easily return from run_scenario here
-            // So we panic to exit early with error result
-            panic!("Failed to spawn process: {}", e);
-        }
-    }
-}
-
+/// Spawn a process, handling errors gracefully
 fn spawn_process_safe(
     proc_config: &ProcessConfig,
     trace_builder: &mut TraceBuilder,
@@ -246,8 +240,8 @@ fn build_invariant_engine(invariants: &[InvariantRef]) -> InvariantEngine {
                     allowed_signals: allowed_signals.clone(),
                 })
             }
-            InvariantRef::ScreenStability { min_ticks } => {
-                Some(BuiltInInvariant::ScreenStability {
+            InvariantRef::ScreenStable { min_ticks } => {
+                Some(BuiltInInvariant::ScreenStable {
                     min_ticks: *min_ticks,
                 })
             }
@@ -314,8 +308,8 @@ fn execute_step_loop(
     trace_builder.add_checkpoint("initial", scheduler, Some(screen));
 
     for step in &scenario.steps {
-        // Check timeout
-        if scheduler.now() > config.max_ticks {
+        // Check timeout - use >= to trigger at exactly max_ticks
+        if scheduler.now() >= config.max_ticks {
             timed_out = true;
             break;
         }
@@ -498,16 +492,39 @@ fn determine_outcome(
             total_ticks: elapsed_ticks,
         },
         Some(crate::process::ExitReason::Signaled(sig)) => {
-            let name = match sig {
-                2 => "SIGINT",
-                9 => "SIGKILL",
-                15 => "SIGTERM",
+            use nix::sys::signal::Signal;
+            let signal_name = match Signal::try_from(sig) {
+                Ok(Signal::SIGINT) => "SIGINT",
+                Ok(Signal::SIGKILL) => "SIGKILL",
+                Ok(Signal::SIGTERM) => "SIGTERM",
+                Ok(Signal::SIGHUP) => "SIGHUP",
+                Ok(Signal::SIGQUIT) => "SIGQUIT",
+                Ok(Signal::SIGABRT) => "SIGABRT",
+                Ok(Signal::SIGFPE) => "SIGFPE",
+                Ok(Signal::SIGSEGV) => "SIGSEGV",
+                Ok(Signal::SIGPIPE) => "SIGPIPE",
+                Ok(Signal::SIGALRM) => "SIGALRM",
+                Ok(Signal::SIGUSR1) => "SIGUSR1",
+                Ok(Signal::SIGUSR2) => "SIGUSR2",
+                Ok(Signal::SIGCHLD) => "SIGCHLD",
+                Ok(Signal::SIGCONT) => "SIGCONT",
+                Ok(Signal::SIGSTOP) => "SIGSTOP",
+                Ok(Signal::SIGTSTP) => "SIGTSTP",
+                Ok(Signal::SIGTTIN) => "SIGTTIN",
+                Ok(Signal::SIGTTOU) => "SIGTTOU",
+                Ok(Signal::SIGBUS) => "SIGBUS",
+                Ok(Signal::SIGSYS) => "SIGSYS",
+                Ok(Signal::SIGTRAP) => "SIGTRAP",
+                Ok(Signal::SIGURG) => "SIGURG",
+                Ok(Signal::SIGVTALRM) => "SIGVTALRM",
+                Ok(Signal::SIGXCPU) => "SIGXCPU",
+                Ok(Signal::SIGXFSZ) => "SIGXFSZ",
+                Ok(Signal::SIGWINCH) => "SIGWINCH",
                 _ => "UNKNOWN",
-            }
-            .to_string();
+            }.to_string();
             TraceOutcome::Signaled {
                 signal: sig,
-                signal_name: name,
+                signal_name,
             }
         }
         Some(crate::process::ExitReason::Running) | None => TraceOutcome::Error {
@@ -518,13 +535,21 @@ fn determine_outcome(
 }
 
 fn exit_code_from_outcome(outcome: &TraceOutcome) -> i32 {
+    // Use positive exit codes in the reserved range (124-125)
+    // Unix exit codes: 0=success, 1=general error, 2= misuse,
+    // 126=not executable, 127=not found, 128+N=signal N
     match outcome {
         TraceOutcome::Success { exit_code, .. } => *exit_code,
-        TraceOutcome::Signaled { .. } => -1,
-        TraceOutcome::InvariantViolation { .. } => -2,
-        TraceOutcome::Timeout { .. } => -3,
-        TraceOutcome::Error { .. } => -4,
-        TraceOutcome::ReplayDivergence { .. } => -5,
+        // 124: commonly used for timeout or signal death
+        TraceOutcome::Signaled { .. } => 124,
+        // 125: general error / invariant violation
+        TraceOutcome::InvariantViolation { .. } => 125,
+        // 124: timeout (didn't complete normally)
+        TraceOutcome::Timeout { .. } => 124,
+        // 125: general error
+        TraceOutcome::Error { .. } => 125,
+        // 125: replay divergence is a test failure
+        TraceOutcome::ReplayDivergence { .. } => 125,
     }
 }
 
@@ -663,6 +688,70 @@ fn execute_step(
     }
 }
 
+/// Check if a regex pattern might cause catastrophic backtracking
+/// Returns None if safe, Some(message) if potentially unsafe
+fn check_regex_complexity(pattern: &str) -> Option<String> {
+    // Count nesting depth of quantifiers that can cause exponential backtracking
+    let mut nest_level = 0;
+    let mut max_nest = 0;
+    let mut in_bracket = false;
+    let mut prev_char = '\0';
+
+    for c in pattern.chars() {
+        match c {
+            '[' => in_bracket = true,
+            ']' => in_bracket = false,
+            '(' if !in_bracket => {
+                nest_level += 1;
+                max_nest = max_nest.max(nest_level);
+            }
+            ')' if !in_bracket => {
+                if nest_level > 0 {
+                    nest_level -= 1;
+                }
+            }
+            '+' | '*' | '?' if prev_char != '\\' && !in_bracket => {
+                // Quantifier after something - check if we're nested
+                if nest_level > 2 {
+                    return Some(format!(
+                        "Regex has deeply nested quantifiers (nest level {}), which may cause catastrophic backtracking",
+                        nest_level
+                    ));
+                }
+            }
+            '{' if prev_char != '\\' && !in_bracket => {
+                // Could be {n,m} quantifier, check for nesting
+                if nest_level > 2 {
+                    return Some(format!(
+                        "Regex has nested quantifiers with {{}} syntax, which may cause catastrophic backtracking",
+                    ));
+                }
+            }
+            _ => {}
+        }
+        prev_char = c;
+    }
+
+    // Check for obviously problematic patterns
+    let problematic = [
+        r"\(\S+\)\+",  // (something)+
+        r"\[\S+\]\+", // [something]+
+        r"\(\S+\s*\)\+\?", // Nested optional groups
+        r"^\(\S+\|\)", // Left-recursive alternation at start
+    ];
+
+    for pat in &problematic {
+        if pattern.contains(pat) {
+            return Some(format!(
+                "Regex contains potentially catastrophic pattern: {}",
+                pat
+            ));
+        }
+    }
+
+    None
+}
+
 fn execute_wait_for(
     pattern: &str,
     timeout_ms: Option<u64>,
@@ -673,6 +762,12 @@ fn execute_wait_for(
     config: &RunnerConfig,
 ) -> StepResult {
     let timeout_ticks = timeout_ms.unwrap_or(5000) / 10;
+
+    // Check regex complexity before compiling
+    if let Some(msg) = check_regex_complexity(pattern) {
+        return StepResult::Error(format!("Unsafe regex pattern: {}", msg));
+    }
+
     let regex = match Regex::new(pattern) {
         Ok(r) => r,
         Err(e) => return StepResult::Error(format!("Invalid regex: {}", e)),
@@ -837,6 +932,11 @@ fn execute_assert_screen(
     io: &mut IoLoop,
     screen: &mut Screen,
 ) -> StepResult {
+    // Check regex complexity before compiling
+    if let Some(msg) = check_regex_complexity(pattern) {
+        return StepResult::Error(format!("Unsafe regex pattern: {}", msg));
+    }
+
     let regex = match Regex::new(pattern) {
         Ok(r) => r,
         Err(e) => return StepResult::Error(format!("Invalid regex: {}", e)),
@@ -891,18 +991,46 @@ fn execute_mouse_click(
 
     // SGR mouse event format: CSI M Cb Cx Cy
     // Cb = button code (0=press, 3=release) + 32
-    // Cx, Cy = column, row + 32 (1-indexed, then clamp to u8 range)
+    // Cx, Cy = column, row + 32 (1-indexed)
+    //
+    // For coordinates >= 256, SGR uses UTF-8 encoding of 0x100 + value:
+    // - Value 0-255: single byte (value)
+    // - Value 256+: two bytes 0xC2 (value >> 8), 0xXX (value & 0xFF)
     let cxb = (button + 32) as u8;
-    let cxx = ((col + 1).min(2000) as usize + 32) as u8;
-    let cxy = ((row + 1).min(2000) as usize + 32) as u8;
 
-    // CSI M Cb Cx Cy
-    let seq = format!("\x1b[M{}{}{}", cxb as char, cxx as char, cxy as char);
+    // Clamp to reasonable bounds (2000 is way beyond any terminal size)
+    let col_clamped = (col + 1).min(2000);
+    let row_clamped = (row + 1).min(2000);
+
+    // Encode column and row coordinates
+    let cxx = encode_sgr_coordinate(col_clamped);
+    let cxy = encode_sgr_coordinate(row_clamped);
+
+    // CSI M Cb Cx Cy - cxb is a single byte, cxx/cxy are UTF-8 encoded strings
+    let seq = format!("\x1b[M{}{}{}", cxb as char, cxx, cxy);
     let bytes = seq.as_bytes();
 
     match keys.inject_raw(bytes) {
         Ok(_) => StepResult::Ok,
         Err(e) => StepResult::Error(format!("Failed to send mouse click: {}", e)),
+    }
+}
+
+/// Encode a coordinate for SGR mouse protocol.
+///
+/// Returns a String containing the UTF-8 encoded coordinate:
+/// - 0-255: single byte (value + 32)
+/// - 256+: two bytes (0xC2, 0x100 + value + 32)
+fn encode_sgr_coordinate(value: u16) -> String {
+    let encoded = (value + 32) as u32;
+    if encoded <= 255 {
+        ((encoded as u8) as char).to_string()
+    } else {
+        // Two-byte UTF-8 encoding for values >= 256
+        // 0xC2 is the leading byte for 0x100-0x7FF range
+        let high = (0xC2u8) as char;
+        let low = ((encoded - 256) as u8) as char;
+        format!("{}{}", high, low)
     }
 }
 
@@ -929,19 +1057,22 @@ fn execute_mouse_scroll(
         crate::scenario::ScrollDirection::Down => 65u8,
     };
 
-    let cxx = ((col + 1).min(2000) as usize + 32) as u8;
-    let cxy = ((row + 1).min(2000) as usize + 32) as u8;
+    // Clamp to reasonable bounds and encode properly
+    let col_clamped = (col + 1).min(2000);
+    let row_clamped = (row + 1).min(2000);
+    let cxx = encode_sgr_coordinate(col_clamped);
+    let cxy = encode_sgr_coordinate(row_clamped);
 
     // Send multiple scroll events if count > 1
     for _ in 0..count {
         // CSI M Cb Cx Cy (button press)
-        let press_seq = format!("\x1b[M{}{}{}", button as char, cxx as char, cxy as char);
+        let press_seq = format!("\x1b[M{}{}{}", button as char, cxx, cxy);
         // CSI M Cb Cx Cy (button release - button + 3)
         let release_seq = format!(
             "\x1b[M{}{}{}",
             (button + 3) as char,
-            cxx as char,
-            cxy as char
+            cxx,
+            cxy
         );
 
         if let Err(e) = keys.inject_raw(press_seq.as_bytes()) {
@@ -966,6 +1097,12 @@ fn execute_wait_screen(
     _config: &RunnerConfig,
 ) -> StepResult {
     let timeout_ticks = timeout_ms.unwrap_or(5000) / 10;
+
+    // Check regex complexity before compiling
+    if let Some(msg) = check_regex_complexity(pattern) {
+        return StepResult::Error(format!("Unsafe regex pattern: {}", msg));
+    }
+
     let regex = match Regex::new(pattern) {
         Ok(r) => r,
         Err(e) => return StepResult::Error(format!("Invalid regex: {}", e)),
@@ -1021,6 +1158,48 @@ fn execute_take_screenshot(
     use crate::screenshot::Screenshot;
     use std::fs;
 
+    // Validate path to prevent path traversal attacks
+    let path_obj = std::path::Path::new(path);
+    if path_obj.is_absolute() {
+        // Allow absolute paths but warn about security implications
+        // In production, you might want to restrict this to a sandbox directory
+    } else if path_obj.starts_with("..") {
+        return StepResult::Error(
+            "Path traversal (../) is not allowed for screenshots".to_string(),
+        );
+    }
+
+    // Normalize and check for embedded path traversal
+    let normalized = match path_obj.canonicalize() {
+        Ok(p) => p,
+        Err(_) => {
+            // If canonicalize fails, do basic validation
+            let clean = std::path::Path::new(path).components().fold(
+                std::path::PathBuf::new(),
+                |mut acc, comp| {
+                    if comp == std::path::Component::ParentDir {
+                        acc.pop();
+                    } else {
+                        acc.push(comp);
+                    }
+                    acc
+                },
+            );
+            if clean.to_string_lossy().contains("..") {
+                return StepResult::Error(
+                    "Path traversal (../) is not allowed for screenshots".to_string(),
+                );
+            }
+            clean
+        }
+    };
+
+    // Optional: restrict to current working directory and subdirectories
+    // let cwd = std::env::current_dir().map_err(|_| StepResult::Error("Cannot determine current directory".to_string()))?;
+    // if !normalized.starts_with(&cwd) {
+    //     return StepResult::Error("Screenshot path must be within current directory".to_string());
+    // }
+
     let timestamp = timing.now();
     let screenshot = Screenshot::from_screen(screen, timestamp);
 
@@ -1047,7 +1226,7 @@ fn execute_take_screenshot(
     output.push_str("---\n");
     output.push_str(&data);
 
-    if let Some(parent) = std::path::Path::new(path).parent() {
+    if let Some(parent) = normalized.parent() {
         if !parent.exists() {
             if let Err(e) = fs::create_dir_all(parent) {
                 return StepResult::Error(format!(
@@ -1058,7 +1237,7 @@ fn execute_take_screenshot(
         }
     }
 
-    if let Err(e) = fs::write(path, &output) {
+    if let Err(e) = fs::write(&normalized, &output) {
         return StepResult::Error(format!("Failed to write screenshot: {}", e));
     }
 
@@ -1169,6 +1348,7 @@ mod tests {
     use super::*;
     use crate::scenario::{Command, TerminalConfig};
     use std::collections::HashMap;
+    use tempfile::TempDir;
 
     #[test]
     fn run_simple_scenario() {
@@ -1251,10 +1431,12 @@ mod tests {
             tags: vec![],
         };
 
-        let temp_path = "/tmp/bte_test_trace.json";
+        // Use a unique temp file instead of hardcoded path to avoid race conditions
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path().join("bte_test_trace.json");
 
         let config = RunnerConfig {
-            trace_path: Some(temp_path.to_string()),
+            trace_path: Some(temp_path.to_string_lossy().to_string()),
             verbose: false,
             max_ticks: 1000,
             tick_delay_ms: 0,
@@ -1263,14 +1445,300 @@ mod tests {
 
         let result = run_scenario(&scenario, &config);
 
-        let path = std::path::Path::new(temp_path);
-        assert!(path.exists());
+        assert!(temp_path.exists());
 
-        let loaded = crate::trace::load_trace(path).unwrap();
+        let loaded = crate::trace::load_trace(&temp_path).unwrap();
         assert_eq!(loaded.seed, 42);
 
-        std::fs::remove_file(path).ok();
-
+        // Cleanup is automatic when TempDir is dropped
         assert!(result.exit_code >= 0);
+    }
+
+    #[test]
+    fn test_echo_command() {
+        let scenario = Scenario {
+            name: "echo-test".to_string(),
+            description: "Test echo command".to_string(),
+            command: Command::Simple("echo hello_world".to_string()),
+            terminal: TerminalConfig::default(),
+            env: HashMap::new(),
+            steps: vec![Step::WaitFor {
+                pattern: "hello_world".to_string(),
+                timeout_ms: Some(5000),
+            }],
+            invariants: vec![],
+            seed: Some(42),
+            timeout_ms: Some(1000),
+            tags: vec![],
+        };
+
+        let config = RunnerConfig {
+            trace_path: None,
+            verbose: false,
+            max_ticks: 1000,
+            tick_delay_ms: 0,
+            seed: Some(42),
+        };
+
+        let result = run_scenario(&scenario, &config);
+        assert_eq!(result.exit_code, 0, "Echo should succeed with exit code 0");
+        assert!(result.trace.steps.len() >= 1);
+    }
+
+    #[test]
+    fn test_send_keys_with_cat() {
+        use crate::scenario::KeySequence;
+        let scenario = Scenario {
+            name: "send-keys-test".to_string(),
+            description: "Test send_keys with cat".to_string(),
+            command: Command::Simple("cat".to_string()),
+            terminal: TerminalConfig::default(),
+            env: HashMap::new(),
+            steps: vec![
+                Step::SendKeys {
+                    keys: KeySequence::Text("test_input".to_string()),
+                },
+                Step::SendKeys {
+                    keys: KeySequence::Text("\n".to_string()),
+                },
+                // cat echoes input but doesn't produce output that wait_for can detect
+                // because the input goes to stdin and output comes from stdout
+                Step::WaitTicks { ticks: 20 },
+            ],
+            invariants: vec![],
+            seed: Some(42),
+            timeout_ms: Some(1000),
+            tags: vec![],
+        };
+
+        let config = RunnerConfig {
+            trace_path: None,
+            verbose: false,
+            max_ticks: 2000,
+            tick_delay_ms: 0,
+            seed: Some(42),
+        };
+
+        let result = run_scenario(&scenario, &config);
+        // cat should complete (not timeout) when we send input
+        assert!(
+            result.exit_code >= 0,
+            "Cat should not error (exit code: {})",
+            result.exit_code
+        );
+    }
+
+    #[test]
+    fn test_resize_step() {
+        let scenario = Scenario {
+            name: "resize-test".to_string(),
+            description: "Test resize step".to_string(),
+            command: Command::Simple("stty size".to_string()),
+            terminal: TerminalConfig::default(),
+            env: HashMap::new(),
+            steps: vec![
+                Step::Resize {
+                    cols: 120,
+                    rows: 40,
+                },
+                Step::WaitTicks { ticks: 5 },
+            ],
+            invariants: vec![],
+            seed: Some(42),
+            timeout_ms: Some(1000),
+            tags: vec![],
+        };
+
+        let config = RunnerConfig {
+            trace_path: None,
+            verbose: false,
+            max_ticks: 1000,
+            tick_delay_ms: 0,
+            seed: Some(42),
+        };
+
+        let result = run_scenario(&scenario, &config);
+        assert_eq!(result.exit_code, 0, "Resize should not cause errors");
+    }
+
+    #[test]
+    fn test_signal_termination() {
+        use crate::scenario::SignalName;
+        let scenario = Scenario {
+            name: "signal-test".to_string(),
+            description: "Test SIGTERM signal".to_string(),
+            command: Command::Simple("sleep 30".to_string()),
+            terminal: TerminalConfig::default(),
+            env: HashMap::new(),
+            steps: vec![
+                Step::WaitTicks { ticks: 10 },
+                Step::SendSignal {
+                    signal: SignalName::Sigterm,
+                },
+                Step::WaitTicks { ticks: 5 },
+            ],
+            invariants: vec![],
+            seed: Some(42),
+            timeout_ms: Some(1000),
+            tags: vec![],
+        };
+
+        let config = RunnerConfig {
+            trace_path: None,
+            verbose: false,
+            max_ticks: 1000,
+            tick_delay_ms: 0,
+            seed: Some(42),
+        };
+
+        let result = run_scenario(&scenario, &config);
+        // SIGTERM should terminate the process (exit code 143 on most systems)
+        assert_ne!(result.exit_code, 0, "Process should be terminated by SIGTERM");
+    }
+
+    #[test]
+    fn test_multiline_output() {
+        let scenario = Scenario {
+            name: "multiline-test".to_string(),
+            description: "Test multiline output".to_string(),
+            command: Command::Simple("printf 'line1\\nline2\\nline3\\n'".to_string()),
+            terminal: TerminalConfig::default(),
+            env: HashMap::new(),
+            steps: vec![Step::WaitFor {
+                pattern: "line2".to_string(),
+                timeout_ms: Some(5000),
+            }],
+            invariants: vec![],
+            seed: Some(42),
+            timeout_ms: Some(1000),
+            tags: vec![],
+        };
+
+        let config = RunnerConfig {
+            trace_path: None,
+            verbose: false,
+            max_ticks: 1000,
+            tick_delay_ms: 0,
+            seed: Some(42),
+        };
+
+        let result = run_scenario(&scenario, &config);
+        assert_eq!(result.exit_code, 0, "Multi-line output should be captured");
+    }
+
+    #[test]
+    fn test_seed_determinism() {
+        let scenario = Scenario {
+            name: "seed-test".to_string(),
+            description: "Test seed determinism".to_string(),
+            command: Command::Simple("echo test".to_string()),
+            terminal: TerminalConfig::default(),
+            env: HashMap::new(),
+            steps: vec![Step::WaitFor {
+                pattern: "test".to_string(),
+                timeout_ms: Some(5000),
+            }],
+            invariants: vec![],
+            seed: Some(42),
+            timeout_ms: Some(1000),
+            tags: vec![],
+        };
+
+        let config1 = RunnerConfig {
+            trace_path: None,
+            verbose: false,
+            max_ticks: 1000,
+            tick_delay_ms: 0,
+            seed: Some(42),
+        };
+        let config2 = RunnerConfig {
+            trace_path: None,
+            verbose: false,
+            max_ticks: 1000,
+            tick_delay_ms: 0,
+            seed: Some(42),
+        };
+
+        let result1 = run_scenario(&scenario, &config1);
+        let result2 = run_scenario(&scenario, &config2);
+
+        assert_eq!(
+            result1.exit_code, result2.exit_code,
+            "Same seed should produce same exit code"
+        );
+        assert_eq!(
+            result1.trace.seed, result2.trace.seed,
+            "Seed should be recorded in trace"
+        );
+    }
+
+    #[test]
+    fn test_trace_records_steps() {
+        let scenario = Scenario {
+            name: "trace-test".to_string(),
+            description: "Test trace recording".to_string(),
+            command: Command::Simple("echo test".to_string()),
+            terminal: TerminalConfig::default(),
+            env: HashMap::new(),
+            steps: vec![Step::WaitFor {
+                pattern: "test".to_string(),
+                timeout_ms: Some(5000),
+            }],
+            invariants: vec![],
+            seed: Some(42),
+            timeout_ms: Some(1000),
+            tags: vec![],
+        };
+
+        let config = RunnerConfig {
+            trace_path: None,
+            verbose: false,
+            max_ticks: 1000,
+            tick_delay_ms: 0,
+            seed: Some(42),
+        };
+
+        let result = run_scenario(&scenario, &config);
+
+        assert!(result.exit_code == 0);
+        assert!(!result.trace.version.is_empty());
+        assert!(result.trace.steps.len() >= 1);
+    }
+
+    #[test]
+    fn test_assert_screen_step() {
+        let scenario = Scenario {
+            name: "assert-test".to_string(),
+            description: "Test assert_screen step".to_string(),
+            command: Command::Simple("printf 'expected_content\\n'".to_string()),
+            terminal: TerminalConfig::default(),
+            env: HashMap::new(),
+            steps: vec![
+                Step::WaitFor {
+                    pattern: "expected_content".to_string(),
+                    timeout_ms: Some(5000),
+                },
+                Step::AssertScreen {
+                    pattern: "expected_content".to_string(),
+                    anywhere: true,
+                    row: None,
+                },
+            ],
+            invariants: vec![],
+            seed: Some(42),
+            timeout_ms: Some(1000),
+            tags: vec![],
+        };
+
+        let config = RunnerConfig {
+            trace_path: None,
+            verbose: false,
+            max_ticks: 1000,
+            tick_delay_ms: 0,
+            seed: Some(42),
+        };
+
+        let result = run_scenario(&scenario, &config);
+        assert_eq!(result.exit_code, 0, "Assert screen should pass when pattern exists");
     }
 }

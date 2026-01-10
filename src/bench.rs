@@ -141,20 +141,16 @@ pub fn benchmark_scenario(
     let mut iterations_data = Vec::with_capacity(config.iterations);
     let mut durations = Vec::with_capacity(config.iterations);
 
-    // Warmup iterations
+    // Warmup iterations - use random seed for warmup to avoid caching effects
     for _ in 0..config.warmup_iterations {
         let runner_config = RunnerConfig {
-            seed: config
-                .baseline_path
-                .as_ref()
-                .and_then(|_| scenario.seed)
-                .or(Some(fastrand::u64(..))),
+            seed: Some(fastrand::u64(..)),
             ..RunnerConfig::default()
         };
         let _ = run_scenario(scenario, &runner_config);
     }
 
-    // Benchmark iterations
+    // Benchmark iterations - use scenario seed if available for determinism, otherwise random
     for i in 0..config.iterations {
         let seed = scenario.seed.unwrap_or_else(|| fastrand::u64(..));
         let runner_config = RunnerConfig {
@@ -215,14 +211,45 @@ pub fn benchmark_scenario(
         0.0
     };
 
-    // Calculate percentiles
-    let p50 = durations[(count as f64 * 0.50) as usize];
-    let p90 = durations[(count as f64 * 0.90) as usize];
-    let p95 = durations[(count as f64 * 0.95) as usize];
-    let p99 = durations[(count as f64 * 0.99) as usize];
+    // Calculate percentiles with safe bounds checking
+    // Uses linear interpolation for more accurate percentiles with small samples
+    let percentile = |p: f64| -> Duration {
+        if count == 0 {
+            return Duration::ZERO;
+        }
+        if count == 1 {
+            return durations[0];
+        }
+
+        // Use linear interpolation between ranks
+        // rank = p * (count - 1) for 0-indexed ranks
+        let rank = p * (count as f64 - 1.0);
+        let lower = rank.floor() as usize;
+        let upper = (lower + 1).min(count - 1);
+        let frac = rank - lower as f64;
+
+        if lower == upper {
+            durations[lower]
+        } else {
+            // Linear interpolation between lower and upper
+            let lower_secs = durations[lower].as_secs_f64();
+            let upper_secs = durations[upper].as_secs_f64();
+            Duration::from_secs_f64(lower_secs + frac * (upper_secs - lower_secs))
+        }
+    };
+
+    let p50 = percentile(0.50);
+    let p90 = percentile(0.90);
+    let p95 = percentile(0.95);
+    let p99 = percentile(0.99);
 
     // Check for regression against baseline
-    let (is_regression, regression_details) = check_regression(&durations, mean_duration, config);
+    let (is_regression, regression_details) = check_regression(
+        &scenario.name,
+        path,
+        mean_duration,
+        config,
+    );
 
     BenchmarkResult {
         name: scenario.name.clone(),
@@ -245,17 +272,21 @@ pub fn benchmark_scenario(
 
 /// Check if current results indicate a regression vs baseline
 fn check_regression(
-    durations: &[Duration],
+    scenario_name: &str,
+    path: &PathBuf,
     current_mean: Duration,
     config: &BenchmarkConfig,
 ) -> (bool, Option<RegressionDetails>) {
     if let Some(baseline_path) = &config.baseline_path {
         if baseline_path.exists() {
             if let Ok(baselines) = load_baselines(baseline_path) {
-                // Find matching baseline (simplified - using name match)
+                // Calculate path hash for matching
+                let path_hash = format!("{:x}", seahash::hash(path.to_string_lossy().as_bytes()));
+
+                // Find matching baseline by name or path hash
                 for baseline in baselines {
-                    // In a real implementation, we'd hash the scenario file
-                    if baseline.name == "current" || baseline.name.is_empty() {
+                    // Match by scenario name or path hash
+                    if baseline.name == scenario_name || baseline.path_hash == path_hash {
                         let baseline_mean = Duration::from_nanos(baseline.mean_duration_ns);
                         let percentage_change = if baseline_mean.as_secs_f64() > 0.0 {
                             ((current_mean.as_secs_f64() - baseline_mean.as_secs_f64())
@@ -267,17 +298,21 @@ fn check_regression(
 
                         let threshold = config.regression_tolerance;
                         if percentage_change.abs() > threshold {
+                            // Use saturating_sub to handle the case where performance improved
+                            let absolute_change = current_mean.saturating_sub(baseline_mean);
                             return (
                                 true,
                                 Some(RegressionDetails {
                                     baseline_mean,
                                     current_mean,
                                     percentage_change,
-                                    absolute_change: current_mean - baseline_mean,
+                                    absolute_change,
                                     threshold,
                                 }),
                             );
                         }
+                        // Found matching baseline, no regression
+                        return (false, None);
                     }
                 }
             }

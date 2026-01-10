@@ -130,13 +130,6 @@ pub enum BuiltInInvariant {
         #[serde(default)]
         allowed_signals: Vec<i32>,
     },
-    /// Screen stability check (same as ScreenStable)
-    #[serde(rename = "screen_stability")]
-    ScreenStability {
-        /// Minimum ticks to wait before considering stable
-        #[serde(default = "default_stable_ticks")]
-        min_ticks: u64,
-    },
     /// Viewport is valid (cursor in bounds, no scroll issues)
     #[serde(rename = "viewport_valid")]
     ViewportValid,
@@ -213,9 +206,6 @@ impl BuiltInInvariant {
             BuiltInInvariant::ProcessTerminatedCleanly { allowed_signals } => Box::new(
                 ProcessTerminatedCleanlyInvariant::new(allowed_signals.clone()),
             ),
-            BuiltInInvariant::ScreenStability { min_ticks } => {
-                Box::new(ScreenStableInvariant::new(*min_ticks))
-            }
             BuiltInInvariant::ViewportValid => Box::new(ViewportValidInvariant),
             BuiltInInvariant::ResponseTime { max_ticks } => {
                 Box::new(ResponseTimeInvariant::new(*max_ticks))

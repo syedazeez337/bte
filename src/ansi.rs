@@ -131,6 +131,10 @@ enum ParserState {
     Utf8,
 }
 
+/// Maximum size for OSC/DCS/APC string data (1KB)
+/// Prevents unbounded memory growth from malicious/buggy input
+const MAX_STRING_DATA_SIZE: usize = 1024;
+
 /// Incremental ANSI parser
 #[derive(Debug)]
 pub struct AnsiParser {
@@ -621,7 +625,12 @@ impl AnsiParser {
                 None
             }
             _ => {
-                self.osc_data.push(byte);
+                // Limit OSC data size to prevent unbounded memory growth
+                if self.osc_data.len() < MAX_STRING_DATA_SIZE {
+                    self.osc_data.push(byte);
+                }
+                // If limit exceeded, we just ignore the extra bytes
+                // until we receive a terminator
                 None
             }
         }
@@ -645,7 +654,10 @@ impl AnsiParser {
                 None
             }
             _ => {
-                self.dcs_data.push(byte);
+                // Limit DCS data size to prevent unbounded memory growth
+                if self.dcs_data.len() < MAX_STRING_DATA_SIZE {
+                    self.dcs_data.push(byte);
+                }
                 self.state = ParserState::DcsPassthrough;
                 None
             }
@@ -670,7 +682,10 @@ impl AnsiParser {
                 None
             }
             _ => {
-                self.dcs_data.push(byte);
+                // Limit DCS data size to prevent unbounded memory growth
+                if self.dcs_data.len() < MAX_STRING_DATA_SIZE {
+                    self.dcs_data.push(byte);
+                }
                 None
             }
         }
@@ -694,7 +709,10 @@ impl AnsiParser {
                 None
             }
             _ => {
-                self.apc_data.push(byte);
+                // Limit APC data size to prevent unbounded memory growth
+                if self.apc_data.len() < MAX_STRING_DATA_SIZE {
+                    self.apc_data.push(byte);
+                }
                 None
             }
         }

@@ -5,16 +5,18 @@
 //! - Seeded RNG wrapper for reproducible randomness
 //! - Explicit scheduling boundaries
 
-use std::cell::Cell;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// A monotonic clock that advances deterministically.
 ///
 /// Instead of using wall-clock time, this clock advances only when
 /// explicitly ticked, ensuring identical timestamps across runs.
+///
+/// This struct is thread-safe using atomic operations.
 #[derive(Debug)]
 pub struct DeterministicClock {
-    /// Current tick count (monotonically increasing)
-    ticks: Cell<u64>,
+    /// Current tick count (monotonically increasing) - using atomics for thread safety
+    ticks: AtomicU64,
     /// Nanoseconds per tick (for conversion to duration-like values)
     nanos_per_tick: u64,
 }
@@ -26,7 +28,7 @@ impl DeterministicClock {
     /// Default is 1_000_000 (1ms per tick).
     pub fn new(nanos_per_tick: u64) -> Self {
         Self {
-            ticks: Cell::new(0),
+            ticks: AtomicU64::new(0),
             nanos_per_tick,
         }
     }
@@ -37,15 +39,17 @@ impl DeterministicClock {
     }
 
     /// Get the current tick count.
+    ///
+    /// Uses acquire-load ordering for safe cross-thread reads.
     #[must_use]
     pub fn now(&self) -> u64 {
-        self.ticks.get()
+        self.ticks.load(Ordering::Acquire)
     }
 
     /// Get the current time as nanoseconds.
     #[must_use]
     pub fn now_nanos(&self) -> u64 {
-        self.ticks.get().saturating_mul(self.nanos_per_tick)
+        self.now().saturating_mul(self.nanos_per_tick)
     }
 
     /// Advance the clock by one tick.
@@ -55,12 +59,25 @@ impl DeterministicClock {
     /// If this returns false, the clock is stuck at u64::MAX and will not advance.
     /// This indicates a serious error condition in a long-running test.
     pub fn tick(&self) -> bool {
-        let current = self.ticks.get();
-        if current == u64::MAX {
-            return false; // Already saturated
+        loop {
+            let current = self.ticks.load(Ordering::Acquire);
+            if current == u64::MAX {
+                return false; // Already saturated
+            }
+            // Try to CAS from current to current + 1
+            match self.ticks.compare_exchange_weak(
+                current,
+                current.saturating_add(1),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(_) => {
+                    // Another thread modified the value, retry
+                    std::hint::spin_loop();
+                }
+            }
         }
-        self.ticks.set(current.saturating_add(1));
-        true
     }
 
     /// Advance the clock by a specific number of ticks.
@@ -70,16 +87,28 @@ impl DeterministicClock {
     /// If this returns false, the clock hit u64::MAX and may not have advanced
     /// by the full requested amount. This indicates a serious error condition.
     pub fn advance(&self, ticks: u64) -> bool {
-        let current = self.ticks.get();
-        match current.checked_add(ticks) {
-            Some(new_val) => {
-                self.ticks.set(new_val);
-                true
-            }
-            None => {
-                // Would overflow - saturate at MAX
-                self.ticks.set(u64::MAX);
-                false
+        loop {
+            let current = self.ticks.load(Ordering::Acquire);
+            match current.checked_add(ticks) {
+                Some(new_val) => {
+                    match self.ticks.compare_exchange_weak(
+                        current,
+                        new_val,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    ) {
+                        Ok(_) => return true,
+                        Err(_) => {
+                            std::hint::spin_loop();
+                        }
+                    }
+                }
+                None => {
+                    // Would overflow - saturate at MAX using atomic max
+                    // This is a best-effort; in practice we expect no overflow
+                    self.ticks.store(u64::MAX, Ordering::Release);
+                    return false;
+                }
             }
         }
     }
@@ -88,12 +117,12 @@ impl DeterministicClock {
     /// A saturated clock cannot advance further.
     #[must_use]
     pub fn is_saturated(&self) -> bool {
-        self.ticks.get() == u64::MAX
+        self.ticks.load(Ordering::Acquire) == u64::MAX
     }
 
     /// Reset the clock to tick 0.
     pub fn reset(&self) {
-        self.ticks.set(0);
+        self.ticks.store(0, Ordering::Release);
     }
 }
 
@@ -214,7 +243,7 @@ impl SeededRng {
 ///
 /// This is used to explicitly mark points in execution where
 /// scheduling decisions are made, ensuring deterministic interleaving.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SchedulingBoundary {
     /// Unique identifier for this boundary
     pub id: u64,
@@ -222,7 +251,7 @@ pub struct SchedulingBoundary {
     pub kind: BoundaryKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BoundaryKind {
     /// Before reading from PTY
     BeforePtyRead,
@@ -243,64 +272,94 @@ pub enum BoundaryKind {
 }
 
 /// A scheduler that tracks execution boundaries for deterministic replay.
+///
+/// This struct uses atomic operations for thread-safe state management.
+/// The scheduler ensures that the same sequence of operations produces
+/// identical results across multiple runs with the same seed.
 #[derive(Debug)]
 pub struct DeterministicScheduler {
-    /// Current boundary counter
-    boundary_id: Cell<u64>,
+    /// Current boundary counter - using atomic for thread safety
+    boundary_id: AtomicU64,
     /// Clock for timing
     clock: DeterministicClock,
-    /// RNG for any randomized decisions
-    rng: std::cell::RefCell<SeededRng>,
+    /// RNG for any randomized decisions - using Mutex for thread-safe access
+    rng: std::sync::Mutex<SeededRng>,
 }
 
 impl DeterministicScheduler {
     /// Create a new scheduler with the given RNG seed.
+    ///
+    /// # Arguments
+    /// * `seed` - The seed for deterministic RNG. Must be non-zero for xorshift.
     pub fn new(seed: u64) -> Self {
         Self {
-            boundary_id: Cell::new(0),
+            boundary_id: AtomicU64::new(0),
             clock: DeterministicClock::default(),
-            rng: std::cell::RefCell::new(SeededRng::new(seed)),
+            rng: std::sync::Mutex::new(SeededRng::new(seed)),
         }
     }
 
     /// Mark a scheduling boundary and advance the clock.
+    ///
+    /// Returns a boundary marker that can be used for replay verification.
     pub fn boundary(&self, kind: BoundaryKind) -> SchedulingBoundary {
-        let id = self.boundary_id.get();
-        self.boundary_id.set(id + 1);
+        let id = self.boundary_id.fetch_add(1, Ordering::AcqRel);
         self.clock.tick();
         SchedulingBoundary { id, kind }
     }
 
     /// Get the current clock time.
+    #[must_use]
     pub fn now(&self) -> u64 {
         self.clock.now()
     }
 
     /// Get the current clock time in nanoseconds.
+    #[must_use]
     pub fn now_nanos(&self) -> u64 {
         self.clock.now_nanos()
     }
 
     /// Get a random value using the deterministic RNG.
-    pub fn random_u64(&self) -> u64 {
-        self.rng.borrow_mut().next_u64()
+    ///
+    /// This operation is thread-safe but may block if another thread
+    /// holds the RNG mutex. Returns an error if the mutex is poisoned.
+    pub fn random_u64(&self) -> Result<u64, String> {
+        self.rng
+            .lock()
+            .map_err(|_| "RNG mutex poisoned".to_string())
+            .map(|mut rng| rng.next_u64())
     }
 
-    /// Get the current RNG state for replay.
-    pub fn rng_state(&self) -> u64 {
-        self.rng.borrow().state()
+    /// Get the current RNG state for replay purposes.
+    ///
+    /// The state can be used to reconstruct the RNG at a later point.
+    /// Returns an error if the mutex is poisoned.
+    #[must_use]
+    pub fn rng_state(&self) -> Result<u64, String> {
+        self.rng
+            .lock()
+            .map_err(|_| "RNG mutex poisoned".to_string())
+            .map(|rng| rng.state())
     }
 
     /// Get the current boundary ID.
+    #[must_use]
     pub fn current_boundary_id(&self) -> u64 {
-        self.boundary_id.get()
+        self.boundary_id.load(Ordering::Acquire)
     }
 
     /// Reset the scheduler to initial state with a new seed.
-    pub fn reset(&self, seed: u64) {
-        self.boundary_id.set(0);
+    ///
+    /// This clears all boundaries and resets the clock.
+    /// Returns an error if the mutex is poisoned.
+    pub fn reset(&self, seed: u64) -> Result<(), String> {
+        self.boundary_id.store(0, Ordering::Release);
         self.clock.reset();
-        self.rng.borrow_mut().set_state(seed);
+        self.rng
+            .lock()
+            .map_err(|_| "RNG mutex poisoned".to_string())
+            .map(|mut rng| rng.set_state(seed))
     }
 }
 
@@ -354,7 +413,7 @@ mod tests {
         sched2.boundary(BoundaryKind::BeforePtyRead);
         assert_eq!(sched1.now(), sched2.now());
         assert_eq!(sched1.current_boundary_id(), sched2.current_boundary_id());
-        assert_eq!(sched1.random_u64(), sched2.random_u64());
+        assert_eq!(sched1.random_u64().unwrap(), sched2.random_u64().unwrap());
     }
 
     #[test]

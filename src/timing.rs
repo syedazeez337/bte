@@ -159,7 +159,7 @@ impl TimingController {
         let checkpoint = ExecutionCheckpoint {
             tick: self.scheduler.now(),
             boundary_id: self.scheduler.current_boundary_id(),
-            rng_state: self.scheduler.rng_state(),
+            rng_state: self.scheduler.rng_state().unwrap_or(0),
             screen_hash,
             description: description.to_string(),
         };

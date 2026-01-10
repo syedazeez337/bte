@@ -265,11 +265,28 @@ impl PtyProcess {
                 // 2. We are the session leader (setsid() called above, required by TIOCSCTTY)
                 // 3. The second argument is 0 = don't steal from another session
                 //
-                // Note: We don't check the return value because TIOCSCTTY returns
-                // an error only if the fd is invalid or we're not a session leader,
-                // both of which we've verified.
-                unsafe {
-                    libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0);
+                // TIOCSCTTY can fail with:
+                // - EBADF: invalid fd
+                // - EINVAL: second argument not 0 when not owner of terminal
+                // - EPERM: not session leader and not forcing (we set force=false)
+                // We check the return value to catch any unexpected failures.
+                let ctlty_result = unsafe {
+                    libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0)
+                };
+                if ctlty_result != 0 {
+                    // Capture errno safely - use nix errno accessor which is portable
+                    let errno = nix::errno::Errno::last_raw();
+                    let msg = match errno {
+                        libc::EBADF => format!("bte: TIOCSCTTY failed: Bad file descriptor\n"),
+                        libc::EINVAL => format!("bte: TIOCSCTTY failed: Invalid argument (not session leader?)\n"),
+                        libc::EPERM => format!("bte: TIOCSCTTY failed: Not session leader\n"),
+                        libc::ENOTTY => format!("bte: TIOCSCTTY failed: Not a terminal\n"),
+                        _ => format!("bte: TIOCSCTTY failed: Unknown error (errno {})\n", errno),
+                    };
+                    let _ = unsafe {
+                        libc::write(2, msg.as_ptr() as *const libc::c_void, msg.len())
+                    };
+                    unsafe { libc::_exit(1); }
                 }
 
                 // Redirect stdio to the slave
@@ -296,16 +313,16 @@ impl PtyProcess {
                     // pointing to a NUL-terminated path. We verified the path earlier.
                     let ret = unsafe { libc::chdir(cwd_cstr.as_ptr()) };
                     if ret != 0 {
-                        // Capture errno before any other calls that might change it
-                        // SAFETY: __errno_location() returns a pointer to thread-local errno.
-                        // This is async-signal-safe.
-                        let errno = unsafe { *libc::__errno_location() };
+                        // Capture errno using nix crate - portable across glibc, musl, etc.
+                        let errno = nix::errno::Errno::last_raw();
                         let err_msg = match errno {
                             libc::ENOENT => "No such file or directory",
                             libc::EACCES => "Permission denied",
                             libc::ENOTDIR => "Not a directory",
                             libc::ENAMETOOLONG => "Path name too long",
                             libc::ELOOP => "Too many symbolic links",
+                            libc::EBADF => "Bad file descriptor",
+                            libc::EFAULT => "Bad address",
                             _ => "Unknown error",
                         };
                         // Write error to stderr - use write() directly to avoid buffering issues

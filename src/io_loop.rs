@@ -195,12 +195,18 @@ pub struct IoLoop {
 
 impl IoLoop {
     /// Create a new IO loop with default settings
+    ///
+    /// # Note
+    /// Default is non-lossy mode (lossy_mode = false) to ensure data integrity.
+    /// This means the IO loop will buffer all output. If the reader cannot keep up,
+    /// the buffer will grow. For scenarios with unbounded output, use `with_lossy_mode(true)`.
     pub fn new() -> Self {
         Self {
             read_buffer_size: DEFAULT_READ_BUFFER_SIZE,
-            output_buffer: BoundedBuffer::default_size(),
+            // Use larger default buffer to handle TUI redraws without dropping
+            output_buffer: BoundedBuffer::new(1024 * 1024), // 1MB default
             input_buffer: BoundedBuffer::default_size(),
-            lossy_mode: true, // Default to lossy to prevent deadlocks
+            lossy_mode: false, // Default to lossless for correctness
             bytes_read: 0,
             bytes_written: 0,
             bytes_dropped: 0,

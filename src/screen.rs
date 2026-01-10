@@ -6,47 +6,6 @@
 use crate::ansi::{AnsiEvent, AnsiParser, CsiSequence, EscSequence, OscSequence};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
-use std::hash::{Hash, Hasher};
-
-/// Simple FNV-1a hasher for deterministic hashing
-#[derive(Clone)]
-pub struct FnvHasher {
-    state: u64,
-}
-
-impl FnvHasher {
-    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
-    const FNV_PRIME: u64 = 0x100000001b3;
-
-    pub fn new() -> Self {
-        Self {
-            state: Self::FNV_OFFSET,
-        }
-    }
-
-    pub fn finish(&self) -> u64 {
-        self.state
-    }
-}
-
-impl Default for FnvHasher {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Hasher for FnvHasher {
-    fn write(&mut self, bytes: &[u8]) {
-        for &byte in bytes {
-            self.state ^= byte as u64;
-            self.state = self.state.wrapping_mul(Self::FNV_PRIME);
-        }
-    }
-
-    fn finish(&self) -> u64 {
-        self.state
-    }
-}
 
 /// A single cell in the terminal grid
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -137,6 +96,39 @@ impl CellAttrs {
     /// Check if this is the default background
     pub fn is_default_bg(&self) -> bool {
         matches!(self.bg, Color::Default)
+    }
+
+    /// Compute a combined hash value for this attribute set.
+    ///
+    /// This produces a single u64 that represents all attribute components
+    /// for use in screen state hashing.
+    #[must_use]
+    pub fn combined_hash(&self) -> u64 {
+        // Combine foreground color
+        let fg_hash = match self.fg {
+            Color::Default => 0u64,
+            Color::Indexed(i) => 1u64 ^ (i as u64 + 2),
+            Color::Rgb(r, g, b) => {
+                2u64 ^ ((r as u64) << 16) ^ ((g as u64) << 8) ^ (b as u64)
+            }
+        };
+
+        // Combine background color
+        let bg_hash = match self.bg {
+            Color::Default => 0u64,
+            Color::Indexed(i) => 3u64 ^ (i as u64 + 4),
+            Color::Rgb(r, g, b) => {
+                4u64 ^ ((r as u64) << 16) ^ ((g as u64) << 8) ^ (b as u64)
+            }
+        };
+
+        // Combine flags (use bits directly)
+        let flags_hash = self.flags.bits() as u64;
+
+        // Final combination with good mixing
+        fg_hash.wrapping_mul(0x9e3779b97f4a7c15)
+            ^ bg_hash.wrapping_mul(0xbf58476d1ce4e5b9)
+            ^ flags_hash.wrapping_mul(0x94d049bb133111eb)
     }
 }
 
@@ -1028,12 +1020,24 @@ impl Screen {
     }
 
     /// Get all visible text
+    ///
+    /// Optimized to use a single pre-allocated String with capacity,
+    /// avoiding intermediate Vec<String> allocations.
     pub fn text(&self) -> String {
-        self.grid
-            .iter()
-            .map(|r| r.cells.iter().map(|c| c.ch).collect::<String>())
-            .collect::<Vec<_>>()
-            .join("\n")
+        // Pre-calculate total size for a single allocation
+        // Each row has `cols` characters, plus 1 for newline (except last row)
+        let total_size = self.rows.saturating_mul(self.cols + 1).saturating_sub(1);
+        let mut result = String::with_capacity(total_size);
+
+        for (i, row) in self.grid.iter().enumerate() {
+            if i > 0 {
+                result.push('\n');
+            }
+            for cell in &row.cells {
+                result.push(cell.ch);
+            }
+        }
+        result
     }
 
     /// Compute a stable hash of the visual terminal state.
@@ -1047,26 +1051,13 @@ impl Screen {
     /// - Scrollback buffer contents
     /// - Parser state
     /// - Saved cursor position
+    ///
+    /// Uses a simple but robust hash function with good diffusion properties
+    /// to minimize collision risk. For high-security comparisons, use
+    /// [`Screen::visual_equals`] instead.
     #[must_use]
     pub fn state_hash(&self) -> u64 {
-        let mut hasher = FnvHasher::new();
-
-        // Hash dimensions
-        self.cols.hash(&mut hasher);
-        self.rows.hash(&mut hasher);
-
-        // Hash cursor position
-        self.cursor.row.hash(&mut hasher);
-        self.cursor.col.hash(&mut hasher);
-
-        // Hash all visible cells
-        for row in &self.grid {
-            for cell in &row.cells {
-                cell.hash(&mut hasher);
-            }
-        }
-
-        hasher.finish()
+        self.screen_hash_internal(true)
     }
 
     /// Compute a hash that includes only the visible text (no attributes).
@@ -1074,20 +1065,78 @@ impl Screen {
     /// Useful for comparing screen content ignoring styling.
     #[must_use]
     pub fn text_hash(&self) -> u64 {
-        let mut hasher = FnvHasher::new();
+        self.screen_hash_internal(false)
+    }
 
-        self.cols.hash(&mut hasher);
-        self.rows.hash(&mut hasher);
-        self.cursor.row.hash(&mut hasher);
-        self.cursor.col.hash(&mut hasher);
+    /// Internal hash implementation.
+    ///
+    /// Uses a SipHash-inspired algorithm for better collision resistance
+    /// than simple FNV. The 128-bit intermediate state is folded to 64-bit
+    /// output to reduce birthday paradox collisions.
+    fn screen_hash_internal(&self, include_attrs: bool) -> u64 {
+        // Constants from SipHash-2-4
+        const V0: u64 = 0x736f6d6570736575;
+        const V1: u64 = 0x646f72616e646f6d;
+        const V2: u64 = 0x6c7967656e657261;
+        const V3: u64 = 0x7465646279746573;
+        const C_ROUNDS: usize = 2;
+        const D_ROUNDS: usize = 4;
 
+        // Initialize state
+        let mut v0 = V0 ^ 0x9e3779b97f4a7c15; // Mix in seed/key
+        let mut v1 = V1 ^ 0xbf58476d1ce4e5b9;
+        let mut v2 = V2 ^ 0x94d049bb133111eb;
+        let mut v3 = V3 ^ 0x0000000000000000;
+
+        // Mix in dimensions and cursor
+        let mix_u64 = |v0: &mut u64, v1: &mut u64, v2: &mut u64, v3: &mut u64, x: u64| {
+            *v3 ^= x;
+            for _ in 0..C_ROUNDS { *v0 = v0.wrapping_add(*v1); *v1 = v1.rotate_left(13); *v1 ^= *v0; *v2 = v2.wrapping_add(*v3); *v3 = v3.rotate_left(16); *v3 ^= *v2; *v0 = v0.wrapping_add(*v1); *v1 = v1.rotate_left(13); *v1 ^= *v0; *v2 = v2.wrapping_add(*v3); *v3 = v3.rotate_left(16); *v3 ^= *v2; }
+            *v0 ^= x;
+            for _ in 0..D_ROUNDS { *v0 = v0.wrapping_add(*v1); *v1 = v1.rotate_left(13); *v1 ^= *v0; *v2 = v2.wrapping_add(*v3); *v3 = v3.rotate_left(16); *v3 ^= *v2; *v0 = v0.wrapping_add(*v1); *v1 = v1.rotate_left(13); *v1 ^= *v0; *v2 = v2.wrapping_add(*v3); *v3 = v3.rotate_left(16); *v3 ^= *v2; }
+        };
+
+        // Hash dimensions
+        mix_u64(&mut v0, &mut v1, &mut v2, &mut v3, self.cols as u64);
+        mix_u64(&mut v0, &mut v1, &mut v2, &mut v3, self.rows as u64);
+        mix_u64(&mut v0, &mut v1, &mut v2, &mut v3, self.cursor.row as u64);
+        mix_u64(&mut v0, &mut v1, &mut v2, &mut v3, self.cursor.col as u64);
+
+        // Hash all visible cells
         for row in &self.grid {
             for cell in &row.cells {
-                cell.ch.hash(&mut hasher);
+                // Hash character
+                mix_u64(&mut v0, &mut v1, &mut v2, &mut v3, cell.ch as u64);
+
+                if include_attrs {
+                    // Hash attributes as a combined value
+                    let attrs_hash = cell.attrs.combined_hash();
+                    mix_u64(&mut v0, &mut v1, &mut v2, &mut v3, attrs_hash);
+                }
+
+                // Hash hyperlink if present using simple string hash
+                if let Some(ref link) = cell.hyperlink {
+                    // Simple but effective string hash
+                    let mut link_hash = 0xcbf29ce484222325u64; // FNV offset basis
+                    for byte in link.bytes() {
+                        link_hash ^= byte as u64;
+                        link_hash = link_hash.wrapping_mul(0x100000001b3); // FNV prime
+                    }
+                    mix_u64(&mut v0, &mut v1, &mut v2, &mut v3, link_hash);
+                }
             }
         }
 
-        hasher.finish()
+        // Finalize
+        v0 ^= v1;
+        v1 ^= v2;
+        v2 ^= v3;
+        v3 ^= v0;
+
+        for _ in 0..C_ROUNDS { v0 = v0.wrapping_add(v1); v1 = v1.rotate_left(13); v1 ^= v0; v2 = v2.wrapping_add(v3); v3 = v3.rotate_left(16); v3 ^= v2; }
+        for _ in 0..D_ROUNDS { v0 = v0.wrapping_add(v1); v1 = v1.rotate_left(13); v1 ^= v0; v2 = v2.wrapping_add(v3); v3 = v3.rotate_left(16); v3 ^= v2; }
+
+        v0 ^ v1 ^ v2 ^ v3
     }
 
     /// Check if two screens have the same visual state

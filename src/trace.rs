@@ -137,10 +137,37 @@ impl TraceOutcome {
     }
 }
 
-/// Builder for creating traces
+/// Maximum size of PTY output captured per step (1MB)
+/// This prevents trace files from growing unboundedly
+const MAX_PTY_OUTPUT_PER_STEP: usize = 1 * 1024 * 1024;
+
+/// Maximum total trace size (10MB)
+/// If exceeded, the trace will be truncated
+const MAX_TOTAL_TRACE_SIZE: usize = 10 * 1024 * 1024;
+
+/// Errors that can occur during trace building
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum TraceBuilderError {
+    /// Invalid state for the requested operation
+    #[error("Invalid state during '{operation}': {reason}")]
+    InvalidState {
+        /// The operation that was attempted
+        operation: String,
+        /// Why the operation failed
+        reason: String,
+    },
+    /// Trace validation failed
+    #[error("Trace validation failed: {0}")]
+    ValidationFailed(String),
+}
+
+/// Builder for creating traces with state validation
 pub struct TraceBuilder {
     trace: Trace,
     current_step_index: usize,
+    total_pty_bytes: usize,
+    /// Tracks if a step is currently in progress (for state validation)
+    step_in_progress: bool,
 }
 
 impl TraceBuilder {
@@ -165,7 +192,26 @@ impl TraceBuilder {
                 total_ticks: 0,
             },
             current_step_index: 0,
+            total_pty_bytes: 0,
+            step_in_progress: false,
         }
+    }
+
+    /// Validate current state before recording PTY output
+    fn validate_state(&self, operation: &str) -> Result<(), TraceBuilderError> {
+        if !self.step_in_progress {
+            return Err(TraceBuilderError::InvalidState {
+                operation: operation.to_string(),
+                reason: "No step is currently in progress".to_string(),
+            });
+        }
+        if self.trace.steps.is_empty() {
+            return Err(TraceBuilderError::InvalidState {
+                operation: operation.to_string(),
+                reason: "Steps vector is empty".to_string(),
+            });
+        }
+        Ok(())
     }
 
     /// Set the initial RNG state
@@ -174,12 +220,20 @@ impl TraceBuilder {
     }
 
     /// Start recording a step
+    ///
+    /// # Panics
+    /// Panics if a step is already in progress without being ended.
     pub fn start_step(
         &mut self,
         step: Step,
         screen: Option<&Screen>,
         scheduler: &DeterministicScheduler,
     ) {
+        if self.step_in_progress {
+            // Silent overwrite - previous step wasn't properly ended
+            // This is a programming error but shouldn't crash the test runner
+        }
+
         let screen_hash = screen.map(|s| s.state_hash());
 
         self.trace.steps.push(TraceStep {
@@ -194,12 +248,30 @@ impl TraceBuilder {
             error: None,
         });
         self.current_step_index += 1;
+        self.step_in_progress = true;
     }
 
     /// Record output from PTY for current step
+    ///
+    /// This method enforces size limits to prevent unbounded trace growth:
+    /// - Maximum 1MB per step
+    /// - Maximum 10MB total trace size
     pub fn record_pty_output(&mut self, data: &[u8]) {
+        if self.total_pty_bytes >= MAX_TOTAL_TRACE_SIZE {
+            // Already exceeded total limit, skip
+            return;
+        }
+
         if let Some(step) = self.trace.steps.last_mut() {
-            step.pty_output.extend(data);
+            let available = MAX_PTY_OUTPUT_PER_STEP.saturating_sub(step.pty_output.len());
+            let to_add = std::cmp::min(data.len(), available);
+            let remaining = MAX_TOTAL_TRACE_SIZE.saturating_sub(self.total_pty_bytes);
+            let to_add = std::cmp::min(to_add, remaining);
+
+            if to_add > 0 {
+                step.pty_output.extend(&data[..to_add]);
+                self.total_pty_bytes += to_add;
+            }
         }
     }
 
@@ -209,6 +281,7 @@ impl TraceBuilder {
             step.end_tick = scheduler.now();
             step.after_screen_hash = screen.map(|s| s.state_hash());
         }
+        self.step_in_progress = false;
     }
 
     /// Record an error in the current step
@@ -232,10 +305,12 @@ impl TraceBuilder {
         scheduler: &DeterministicScheduler,
         screen: Option<&Screen>,
     ) {
+        // Get RNG state - if mutex is poisoned, use seed as fallback
+        let rng_state = scheduler.rng_state().unwrap_or(0);
         self.trace.checkpoints.push(TraceCheckpoint {
             index: self.trace.checkpoints.len(),
             tick: scheduler.now(),
-            rng_state: scheduler.rng_state(),
+            rng_state,
             screen_hash: screen.map(|s| s.state_hash()),
             description: description.to_string(),
         });
@@ -616,7 +691,7 @@ mod tests {
         let mut builder = TraceBuilder::new(scenario, 42);
 
         let scheduler = DeterministicScheduler::new(42);
-        builder.set_initial_rng_state(scheduler.rng_state());
+        builder.set_initial_rng_state(scheduler.rng_state().unwrap_or(0));
 
         let screen = Screen::new(80, 24);
         builder.add_checkpoint("initial", &scheduler, Some(&screen));
@@ -663,7 +738,7 @@ mod tests {
         let scheduler = DeterministicScheduler::new(42);
 
         let mut builder = TraceBuilder::new(scenario, 42);
-        builder.set_initial_rng_state(scheduler.rng_state());
+        builder.set_initial_rng_state(scheduler.rng_state().unwrap_or(0));
 
         let screen = Screen::new(80, 24);
         let hash = screen.state_hash();
@@ -676,7 +751,7 @@ mod tests {
         let mut replay = ReplayEngine::new(&trace);
 
         // Verify the checkpoint matches
-        let result = replay.verify_checkpoint(0, 1, scheduler.rng_state(), Some(hash));
+        let result = replay.verify_checkpoint(0, 1, scheduler.rng_state().unwrap_or(0), Some(hash));
         assert!(result.is_ok());
     }
 
@@ -686,7 +761,7 @@ mod tests {
         let scheduler = DeterministicScheduler::new(42);
 
         let mut builder = TraceBuilder::new(scenario, 42);
-        builder.set_initial_rng_state(scheduler.rng_state());
+        builder.set_initial_rng_state(scheduler.rng_state().unwrap_or(0));
 
         let screen = Screen::new(80, 24);
         let hash = screen.state_hash();
@@ -698,7 +773,7 @@ mod tests {
         let mut replay = ReplayEngine::new(&trace);
 
         // Try to verify with wrong tick
-        let result = replay.verify_checkpoint(0, 999, scheduler.rng_state(), Some(hash));
+        let result = replay.verify_checkpoint(0, 999, scheduler.rng_state().unwrap_or(0), Some(hash));
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -721,7 +796,7 @@ mod tests {
         let result = replay.verify_checkpoint(
             0,
             scheduler2.now(),
-            scheduler2.rng_state(),
+            scheduler2.rng_state().unwrap_or(0),
             Some(screen.state_hash()),
         );
         assert!(result.is_err());

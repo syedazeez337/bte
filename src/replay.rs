@@ -56,6 +56,8 @@ pub enum InputEvent {
     },
     /// Tick advancement (no input, just time)
     Tick {
+        /// Sequence number for ordering
+        sequence: u64,
         /// Number of ticks advanced
         count: u64,
     },
@@ -696,7 +698,7 @@ impl InputEvent {
             InputEvent::KeyPress { sequence, .. } => *sequence,
             InputEvent::Resize { sequence, .. } => *sequence,
             InputEvent::Signal { sequence, .. } => *sequence,
-            InputEvent::Tick { count } => *count,
+            InputEvent::Tick { sequence, .. } => *sequence,
         }
     }
 }

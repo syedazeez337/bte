@@ -156,6 +156,17 @@ pub fn run_with_retry(
             total_runs,
             passes,
         }
+    } else if retries_used > 0 && failures == 1 && passes == total_runs - 1 {
+        // First run failed, but all retries passed - this is FlakyFixed
+        // A flaky test that was "fixed" by retrying
+        FlakyResult::FlakyFixed {
+            scenario_name: scenario.name.clone(),
+            total_runs,
+            passes,
+            retries_used,
+            first_failure_exit_code,
+            exit_codes,
+        }
     } else if passes > 0 && failures > 0 {
         // Mixed results - could be flaky or unstable
         let failure_rate = failures as f64 / total_runs as f64;
@@ -321,8 +332,13 @@ pub fn update_history(
     result: &FlakyResult,
     path: &PathBuf,
 ) {
-    // Find existing entry
-    let path_str = path.to_string_lossy().to_string();
+    // Use canonical path if possible for consistent comparison across different working directories
+    let path_str = match path.canonicalize() {
+        Ok(canonical) => canonical.to_string_lossy().to_string(),
+        Err(_) => path.to_string_lossy().to_string(),
+    };
+
+    // Find existing entry by canonical path
     if let Some(entry) = history.iter_mut().find(|e| e.path == path_str) {
         // Update existing entry
         match result {

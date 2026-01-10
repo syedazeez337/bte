@@ -238,8 +238,16 @@ impl Pty {
 
         #[cfg(target_os = "macos")]
         unsafe {
-            // macOS uses the same structure but a different ioctl number
-            // TIOCSWINSZ is defined in <sys/ioctl.h> as 0x80087467
+            // macOS uses the same Winsize structure but a different ioctl number.
+            // TIOCSWINSZ on macOS is defined as:
+            //   #define TIOCSWINSZ  _IOW('t', 103, struct winsize)
+            // Which evaluates to 0x80087467 when passed to ioctl().
+            // - 't' = 0x74 (ASCII for 't')
+            // - 103 = request number
+            // - _IOW = write IOCTL (2 bits) << 30 | sizeof(winsize) << 16 | 't' << 8 | 103
+            // = 0x02 << 30 | 0x10 << 16 | 0x74 << 8 | 103
+            // = 0x80000000 | 0x00100000 | 0x7400 | 0x67
+            // = 0x80087467
             let ret = libc::ioctl(master_fd, 0x80087467 as _, &winsize);
             if ret < 0 {
                 return Err(PtyError::ConfigurationFailed(nix::Error::last()));
