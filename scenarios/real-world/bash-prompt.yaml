@@ -1,0 +1,35 @@
+# Test bash prompt behavior
+name: "bash-prompt"
+description: "Test interactive bash shell prompt"
+command: "bash --norc --noprofile"
+
+terminal:
+  cols: 80
+  rows: 24
+
+env:
+  PS1: "$ "
+  TERM: xterm-256color
+
+steps:
+  - action: wait_for
+    pattern: "\\$"
+    timeout_ms: 3000
+
+  - action: send_keys
+    keys: "echo test\n"
+
+  - action: wait_for
+    pattern: "test"
+    timeout_ms: 2000
+
+  - action: send_keys
+    keys: "exit\n"
+
+invariants:
+  - type: cursor_bounds
+  - type: no_deadlock
+    timeout_ms: 5000
+
+seed: 42
+timeout_ms: 15000

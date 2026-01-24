@@ -203,7 +203,7 @@ pub fn compare_screenshots(
 
     // Find all differences
     let mut differences = Vec::new();
-    let mut total_cells = baseline.cols * baseline.rows;
+    let total_cells = baseline.cols * baseline.rows;
     let mut matching_cells = 0;
     let empty_cell = Cell::new();
 

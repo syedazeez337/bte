@@ -113,7 +113,7 @@ impl Default for FlakyConfig {
 }
 
 /// Run a scenario with retry logic for flaky detection
-pub fn run_with_retry(scenario: &Scenario, path: &PathBuf, config: &FlakyConfig) -> FlakyResult {
+pub fn run_with_retry(scenario: &Scenario, _path: &Path, config: &FlakyConfig) -> FlakyResult {
     let mut results: Vec<(bool, i32)> = Vec::new();
     let mut retries_used = 0;
     let mut first_failure_exit_code = None;
@@ -340,7 +340,7 @@ pub fn save_flaky_history(
 }
 
 /// Update history with new results
-pub fn update_history(history: &mut Vec<FlakyHistoryEntry>, result: &FlakyResult, path: &PathBuf) {
+pub fn update_history(history: &mut Vec<FlakyHistoryEntry>, result: &FlakyResult, path: &Path) {
     // Use canonical path if possible for consistent comparison across different working directories
     let path_str = match path.canonicalize() {
         Ok(canonical) => canonical.to_string_lossy().to_string(),

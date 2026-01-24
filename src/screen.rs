@@ -51,20 +51,15 @@ impl Default for Cell {
 }
 
 /// Color specification for terminal cells
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum Color {
     /// Default terminal color
+    #[default]
     Default,
     /// Standard 8 colors (0-7) or high-intensity (8-15)
     Indexed(u16),
     /// Truecolor (24-bit RGB)
     Rgb(u8, u8, u8),
-}
-
-impl Default for Color {
-    fn default() -> Self {
-        Color::Default
-    }
 }
 
 /// Cell attributes (colors and style flags)
@@ -1082,7 +1077,7 @@ impl Screen {
         let mut v0 = V0 ^ 0x9e3779b97f4a7c15; // Mix in seed/key
         let mut v1 = V1 ^ 0xbf58476d1ce4e5b9;
         let mut v2 = V2 ^ 0x94d049bb133111eb;
-        let mut v3 = V3 ^ 0x0000000000000000;
+        let mut v3 = V3;
 
         // Mix in dimensions and cursor
         let mix_u64 = |v0: &mut u64, v1: &mut u64, v2: &mut u64, v3: &mut u64, x: u64| {

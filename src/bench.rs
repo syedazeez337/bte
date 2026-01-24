@@ -6,11 +6,12 @@
 //! - Detect performance regressions
 //! - Generate performance reports
 
-use crate::parallel::{ParallelConfig, ParallelResult, ScenarioResult};
+// Benchmarking requires real-time measurement
+#![allow(clippy::disallowed_types)]
+
 use crate::runner::{run_scenario, RunnerConfig};
 use crate::scenario::Scenario;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -135,7 +136,7 @@ impl Default for BenchmarkConfig {
 /// Run a benchmark on a single scenario
 pub fn benchmark_scenario(
     scenario: &Scenario,
-    path: &PathBuf,
+    path: &Path,
     config: &BenchmarkConfig,
 ) -> BenchmarkResult {
     let mut iterations_data = Vec::with_capacity(config.iterations);
@@ -249,7 +250,7 @@ pub fn benchmark_scenario(
 
     BenchmarkResult {
         name: scenario.name.clone(),
-        path: path.clone(),
+        path: path.to_path_buf(),
         iterations: config.iterations,
         mean_duration,
         std_dev,
@@ -269,7 +270,7 @@ pub fn benchmark_scenario(
 /// Check if current results indicate a regression vs baseline
 fn check_regression(
     scenario_name: &str,
-    path: &PathBuf,
+    path: &Path,
     current_mean: Duration,
     config: &BenchmarkConfig,
 ) -> (bool, Option<RegressionDetails>) {

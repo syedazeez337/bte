@@ -139,7 +139,7 @@ impl TraceOutcome {
 
 /// Maximum size of PTY output captured per step (1MB)
 /// This prevents trace files from growing unboundedly
-const MAX_PTY_OUTPUT_PER_STEP: usize = 1 * 1024 * 1024;
+const MAX_PTY_OUTPUT_PER_STEP: usize = 1024 * 1024;
 
 /// Maximum total trace size (10MB)
 /// If exceeded, the trace will be truncated

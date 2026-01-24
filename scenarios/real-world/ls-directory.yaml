@@ -1,0 +1,18 @@
+# Test ls command output
+name: "ls-directory"
+description: "Test ls listing current directory"
+command: "ls"
+
+terminal:
+  cols: 100
+  rows: 30
+
+steps:
+  - action: wait_ticks
+    ticks: 50
+
+invariants:
+  - type: cursor_bounds
+
+seed: 42
+timeout_ms: 10000

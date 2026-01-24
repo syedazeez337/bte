@@ -92,13 +92,12 @@ impl TagFilter {
                     // Check if it's a category=value pattern
                     if let Some((cat, val)) = n.split_once('=') {
                         // Match tags with this category AND name
-                        tags.iter().any(|t| {
-                            t.category.as_ref().map_or(false, |c| c == cat) && t.name == val
-                        })
+                        tags.iter()
+                            .any(|t| t.category.as_ref().is_some_and(|c| c == cat) && t.name == val)
                     } else if let Some((cat, name)) = n.split_once(':') {
                         // Match tags with this category:name
                         tags.iter().any(|t| {
-                            t.category.as_ref().map_or(false, |c| c == cat) && t.name == name
+                            t.category.as_ref().is_some_and(|c| c == cat) && t.name == name
                         })
                     } else {
                         // Match by tag name
@@ -110,12 +109,11 @@ impl TagFilter {
                 tag_names.iter().any(|n| {
                     // Check if it's a category=value pattern
                     if let Some((cat, val)) = n.split_once('=') {
-                        tags.iter().any(|t| {
-                            t.category.as_ref().map_or(false, |c| c == cat) && t.name == val
-                        })
+                        tags.iter()
+                            .any(|t| t.category.as_ref().is_some_and(|c| c == cat) && t.name == val)
                     } else if let Some((cat, name)) = n.split_once(':') {
                         tags.iter().any(|t| {
-                            t.category.as_ref().map_or(false, |c| c == cat) && t.name == name
+                            t.category.as_ref().is_some_and(|c| c == cat) && t.name == name
                         })
                     } else {
                         tags.iter().any(|t| t.name == *n)
@@ -125,17 +123,17 @@ impl TagFilter {
             TagFilter::HasNone(tag_names) => !tag_names.iter().any(|n| {
                 if let Some((cat, val)) = n.split_once('=') {
                     tags.iter()
-                        .any(|t| t.category.as_ref().map_or(false, |c| c == cat) && t.name == val)
+                        .any(|t| t.category.as_ref().is_some_and(|c| c == cat) && t.name == val)
                 } else if let Some((cat, name)) = n.split_once(':') {
                     tags.iter()
-                        .any(|t| t.category.as_ref().map_or(false, |c| c == cat) && t.name == name)
+                        .any(|t| t.category.as_ref().is_some_and(|c| c == cat) && t.name == name)
                 } else {
                     tags.iter().any(|t| t.name == *n)
                 }
             }),
-            TagFilter::HasCategory(category) => tags
-                .iter()
-                .any(|t| t.category.as_ref().map_or(false, |c| c == category)),
+            TagFilter::HasCategory(category) => {
+                tags.iter().any(|t| t.category.as_ref() == Some(category))
+            }
             TagFilter::Not(inner) => !inner.matches_tags(tags),
             TagFilter::All => true,
             TagFilter::None => false,

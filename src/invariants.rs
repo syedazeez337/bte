@@ -792,14 +792,12 @@ impl Invariant for CustomInvariant {
                             screen_text.len()
                         ));
                     }
-                } else {
-                    if contains {
-                        satisfied = false;
-                        details.push(format!(
-                            "Pattern '{}' should not be present but was found",
-                            pattern
-                        ));
-                    }
+                } else if contains {
+                    satisfied = false;
+                    details.push(format!(
+                        "Pattern '{}' should not be present but was found",
+                        pattern
+                    ));
                 }
             } else {
                 details.push("No screen available for pattern check".to_string());
@@ -810,8 +808,8 @@ impl Invariant for CustomInvariant {
         if let (Some(row), Some(col)) = (self.expected_row, self.expected_col) {
             if let Some(screen) = ctx.screen {
                 let cursor = screen.cursor();
-                let cursor_row = cursor.row as usize;
-                let cursor_col = cursor.col as usize;
+                let cursor_row = cursor.row;
+                let cursor_col = cursor.col;
 
                 if cursor_row != row || cursor_col != col {
                     satisfied = false;
@@ -828,7 +826,7 @@ impl Invariant for CustomInvariant {
         // Check only row if specified
         if let (Some(row), None) = (self.expected_row, self.expected_col) {
             if let Some(screen) = ctx.screen {
-                let cursor_row = screen.cursor().row as usize;
+                let cursor_row = screen.cursor().row;
                 if cursor_row != row {
                     satisfied = false;
                     details.push(format!(
@@ -842,7 +840,7 @@ impl Invariant for CustomInvariant {
         // Check only col if specified
         if let (None, Some(col)) = (self.expected_row, self.expected_col) {
             if let Some(screen) = ctx.screen {
-                let cursor_col = screen.cursor().col as usize;
+                let cursor_col = screen.cursor().col;
                 if cursor_col != col {
                     satisfied = false;
                     details.push(format!(

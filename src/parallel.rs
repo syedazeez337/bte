@@ -6,6 +6,9 @@
 //! - Limit concurrent execution with a semaphore
 //! - Handle panics and errors gracefully
 
+// Parallel execution requires real-time measurement
+#![allow(clippy::disallowed_types)]
+
 use crate::runner::{run_scenario, RunnerConfig};
 use crate::scenario::Scenario;
 use rayon::prelude::*;
@@ -196,12 +199,12 @@ pub fn run_parallel(scenarios: &[(Scenario, PathBuf)], config: &ParallelConfig) 
     let passed_count = local_results.iter().filter(|r| r.passed).count();
     let skipped_count = local_results
         .iter()
-        .filter(|r| r.error.as_ref().map_or(false, |e| e.contains("Skipped")))
+        .filter(|r| r.error.as_ref().is_some_and(|e| e.contains("Skipped")))
         .count();
     // Failed = not passed AND not skipped
     let failed_count = local_results
         .iter()
-        .filter(|r| !r.passed && r.error.as_ref().map_or(true, |e| !e.contains("Skipped")))
+        .filter(|r| !r.passed && r.error.as_ref().is_none_or(|e| !e.contains("Skipped")))
         .count();
 
     ParallelResult {

@@ -1,0 +1,24 @@
+# Visual regression testing with screenshots
+# Captures and compares terminal screen state
+
+name: "visual-regression"
+description: "Demonstrate screenshot-based visual testing"
+command: "echo 'Welcome to BTE'"
+
+terminal:
+  cols: 40
+  rows: 10
+
+steps:
+  - action: wait_for
+    pattern: "Welcome"
+    timeout_ms: 2000
+
+  - action: wait_ticks
+    ticks: 5
+
+invariants:
+  - type: cursor_bounds
+
+seed: 42
+timeout_ms: 10000

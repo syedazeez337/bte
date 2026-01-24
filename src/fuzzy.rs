@@ -66,10 +66,8 @@ pub fn levenshtein_distance(a: &str, b: &str) -> usize {
         if b_chars[..a_len] == a_chars {
             return b_len - a_len;
         }
-    } else if a_len > b_len {
-        if a_chars[..b_len] == b_chars {
-            return a_len - b_len;
-        }
+    } else if a_len > b_len && a_chars[..b_len] == b_chars {
+        return a_len - b_len;
     }
 
     // Standard DP algorithm with space optimization
@@ -140,11 +138,7 @@ pub fn jaro_winkler_similarity(a: &str, b: &str) -> f64 {
     let mut k = 0usize;
 
     for i in 0..a_len {
-        let start = if i >= match_distance {
-            i - match_distance
-        } else {
-            0
-        };
+        let start = i.saturating_sub(match_distance);
         let end = (i + match_distance + 1).min(b_len);
 
         for j in start..end {
@@ -284,7 +278,7 @@ pub fn fuzzy_match(text: &str, pattern: &str, max_distance: usize) -> Option<Fuz
                 position: start,
             };
 
-            if best_match.as_ref().map_or(true, |b| distance < b.distance) {
+            if best_match.as_ref().is_none_or(|b| distance < b.distance) {
                 best_match = Some(candidate);
             }
         }
@@ -336,7 +330,7 @@ pub fn contains_fuzzy(text: &str, pattern: &str, max_distance: usize) -> Option<
                     position: start,
                 };
 
-                if best_match.as_ref().map_or(true, |b| distance < b.distance) {
+                if best_match.as_ref().is_none_or(|b| distance < b.distance) {
                     best_match = Some(candidate);
                 }
             }

@@ -2,6 +2,11 @@
 //!
 //! This crate provides deterministic behavioral testing for terminal applications.
 
+// Allow dead code for library modules that expose public APIs for future use
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -88,7 +93,7 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     match run() {
         Ok(code) => {
-            if code >= 0 && code <= 255 {
+            if (0..=255).contains(&code) {
                 ExitCode::from(code as u8)
             } else {
                 ExitCode::FAILURE

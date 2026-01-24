@@ -3,6 +3,9 @@
 //! This module handles forking and executing binaries inside a PTY,
 //! with proper stdio routing and environment isolation.
 
+// Process termination requires real-time timeout
+#![allow(clippy::disallowed_types)]
+
 use crate::pty::{Pty, PtyConfig, PtyError};
 use nix::libc;
 use nix::sys::signal::{kill, Signal};
@@ -275,12 +278,13 @@ impl PtyProcess {
                     // Capture errno safely - use nix errno accessor which is portable
                     let errno = nix::errno::Errno::last_raw();
                     let msg = match errno {
-                        libc::EBADF => format!("bte: TIOCSCTTY failed: Bad file descriptor\n"),
-                        libc::EINVAL => format!(
+                        libc::EBADF => "bte: TIOCSCTTY failed: Bad file descriptor\n".to_string(),
+                        libc::EINVAL => {
                             "bte: TIOCSCTTY failed: Invalid argument (not session leader?)\n"
-                        ),
-                        libc::EPERM => format!("bte: TIOCSCTTY failed: Not session leader\n"),
-                        libc::ENOTTY => format!("bte: TIOCSCTTY failed: Not a terminal\n"),
+                                .to_string()
+                        }
+                        libc::EPERM => "bte: TIOCSCTTY failed: Not session leader\n".to_string(),
+                        libc::ENOTTY => "bte: TIOCSCTTY failed: Not a terminal\n".to_string(),
                         _ => format!("bte: TIOCSCTTY failed: Unknown error (errno {})\n", errno),
                     };
                     let _ =
@@ -568,9 +572,6 @@ impl PtyProcess {
                 | Ok(WaitStatus::PtraceSyscall(_))
                 | Ok(WaitStatus::Continued(_)) => {
                     // Process is in a special state, treat as alive
-                }
-                Ok(_) => {
-                    // Unknown status, treat as alive
                 }
                 Err(Errno::ECHILD) => return false, // Already reaped
                 Err(_) => return false,             // Other error, give up

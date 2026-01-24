@@ -335,7 +335,6 @@ impl DeterministicScheduler {
     ///
     /// The state can be used to reconstruct the RNG at a later point.
     /// Returns an error if the mutex is poisoned.
-    #[must_use]
     pub fn rng_state(&self) -> Result<u64, String> {
         self.rng
             .lock()

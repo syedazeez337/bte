@@ -1,0 +1,27 @@
+# Test cat command output
+name: "cat-file"
+description: "Test cat displaying file contents"
+command: "bash -c 'echo -e \"Line 1\\nLine 2\\nLine 3\" | cat -n'"
+
+terminal:
+  cols: 80
+  rows: 24
+
+steps:
+  - action: wait_for
+    pattern: "1.*Line 1"
+    timeout_ms: 2000
+
+  - action: wait_for
+    pattern: "2.*Line 2"
+    timeout_ms: 1000
+
+  - action: wait_for
+    pattern: "3.*Line 3"
+    timeout_ms: 1000
+
+invariants:
+  - type: cursor_bounds
+
+seed: 42
+timeout_ms: 10000

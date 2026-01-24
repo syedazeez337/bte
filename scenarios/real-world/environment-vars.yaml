@@ -1,0 +1,19 @@
+# Test environment variable handling
+name: "environment-vars"
+description: "Test that echo command works"
+command: "echo 'Environment test successful'"
+
+terminal:
+  cols: 80
+  rows: 24
+
+steps:
+  - action: wait_for
+    pattern: "Environment test"
+    timeout_ms: 2000
+
+invariants:
+  - type: cursor_bounds
+
+seed: 42
+timeout_ms: 5000

@@ -12,6 +12,29 @@
 
 BTE executes real terminal applications in a pseudo-terminal (PTY), captures all output, and verifies behavioral invariants automatically. Think of it as [Playwright](https://playwright.dev/) for CLI/TUI applications.
 
+## Scope
+
+BTE is **language-agnostic** and can test **any** terminal/CLI application, regardless of the language it's written in. Since BTE spawns real processes in a PTY and communicates via stdin/stdout/stderr, it can test applications written in:
+
+- **Rust**, Python, Go, Node.js, C/C++, Bash, and any language that runs in a terminal
+- Shell scripts, TUI frameworks (crossterm, ratatui, tview, blessed, etc.)
+- Any command-line tool with textual input/output
+
+Example test scenarios can target:
+```yaml
+# Test a Python TUI app
+command: "python3 myapp.py"
+
+# Test a Node.js CLI tool
+command: "node mycli.js"
+
+# Test a Rust binary
+command: "./my-rust-app"
+
+# Test a shell script
+command: "bash script.sh"
+```
+
 ## About
 
 BTE provides a declarative, YAML-based approach to testing terminal applications:

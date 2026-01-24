@@ -1,0 +1,26 @@
+# Test 256-color and truecolor output
+# This scenario validates that BTE correctly handles extended ANSI colors
+
+name: "colors-test"
+description: "Test 256-color and truecolor terminal output"
+command: "echo 'Testing colors: Red256 GreenRGB'"
+
+terminal:
+  cols: 80
+  rows: 24
+
+steps:
+  - action: wait_for
+    pattern: "Testing colors"
+    timeout_ms: 3000
+  - action: wait_for
+    pattern: "Red256"
+    timeout_ms: 1000
+
+invariants:
+  - type: cursor_bounds
+  - type: no_deadlock
+    timeout_ms: 3000
+
+seed: 42
+timeout_ms: 10000

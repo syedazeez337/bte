@@ -243,7 +243,7 @@ impl TimingController {
 
     /// Reset the controller to initial state
     pub fn reset(&mut self, seed: u64) {
-        self.scheduler.reset(seed);
+        let _ = self.scheduler.reset(seed);
         self.checkpoints.clear();
         self.checkpoint_index = 0;
     }

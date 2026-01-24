@@ -116,12 +116,8 @@ impl TerminalProcess for LinuxTerminalProcess {
             Signal::Sigusr2 => NixSignal::SIGUSR2,
         };
 
-        kill(pid, nix_signal).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to send signal: {}", e),
-            )
-        })
+        kill(pid, nix_signal)
+            .map_err(|e| std::io::Error::other(format!("Failed to send signal: {}", e)))
     }
 
     fn resize(&mut self, cols: u16, rows: u16) -> Result<(), std::io::Error> {
@@ -157,10 +153,7 @@ impl TerminalProcess for LinuxTerminalProcess {
             Ok(WaitStatus::Exited(_, code)) => Ok(ExitStatus::Exited(code)),
             Ok(WaitStatus::Signaled(_, sig, _)) => Ok(ExitStatus::Signaled(sig as i32)),
             Ok(_) => Ok(ExitStatus::Running),
-            Err(e) => Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Wait failed: {}", e),
-            )),
+            Err(e) => Err(std::io::Error::other(format!("Wait failed: {}", e))),
         }
     }
 
@@ -185,10 +178,7 @@ impl TerminalProcess for LinuxTerminalProcess {
                 self.pid = None;
                 Ok(None)
             }
-            Err(e) => Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Try wait failed: {}", e),
-            )),
+            Err(e) => Err(std::io::Error::other(format!("Try wait failed: {}", e))),
         }
     }
 
@@ -213,7 +203,7 @@ pub struct LinuxTerminalBackend;
 impl LinuxTerminalBackend {
     fn set_raw_mode(fd: RawFd) -> Result<Option<Termios>, PlatformError> {
         let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
-        let mut termios = termios::tcgetattr(&borrowed).map_err(|e| PlatformError {
+        let mut termios = termios::tcgetattr(borrowed).map_err(|e| PlatformError {
             source: Box::new(e),
             kind: PlatformErrorKind::PtyAllocation,
         })?;
@@ -227,7 +217,7 @@ impl LinuxTerminalBackend {
         termios.local_flags.remove(LocalFlags::ECHONL);
         termios.local_flags.remove(LocalFlags::ISIG);
 
-        termios::tcsetattr(&borrowed, SetArg::TCSANOW, &termios).map_err(|e| PlatformError {
+        termios::tcsetattr(borrowed, SetArg::TCSANOW, &termios).map_err(|e| PlatformError {
             source: Box::new(e),
             kind: PlatformErrorKind::PtyAllocation,
         })?;
@@ -302,11 +292,11 @@ impl TerminalBackend for LinuxTerminalBackend {
                     libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0);
                 }
 
-                dup2(slave_fd, libc::STDIN_FILENO);
-                dup2(slave_fd, libc::STDOUT_FILENO);
-                dup2(slave_fd, libc::STDERR_FILENO);
+                let _ = dup2(slave_fd, libc::STDIN_FILENO);
+                let _ = dup2(slave_fd, libc::STDOUT_FILENO);
+                let _ = dup2(slave_fd, libc::STDERR_FILENO);
 
-                close(slave_fd);
+                let _ = close(slave_fd);
 
                 for env in &config.env {
                     std::env::set_var(&env.name, &env.value);

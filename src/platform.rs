@@ -56,10 +56,7 @@ impl Signal {
 
     /// Check if this signal can be trapped/handled
     pub fn is_trappable(&self) -> bool {
-        match self {
-            Signal::Sigkill | Signal::Sigstop => false,
-            _ => true,
-        }
+        !matches!(self, Signal::Sigkill | Signal::Sigstop)
     }
 }
 
@@ -251,7 +248,7 @@ impl Signal {
 
     /// Get the errno number for this signal
     #[cfg(unix)]
-    pub fn to_errno(&self) -> i32 {
+    pub fn to_errno(self) -> i32 {
         match self {
             Signal::Sigint => libc::SIGINT,
             Signal::Sigterm => libc::SIGTERM,

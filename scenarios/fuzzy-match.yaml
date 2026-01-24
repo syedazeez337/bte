@@ -1,0 +1,23 @@
+# Demonstrate fuzzy pattern matching
+# Uses Levenshtein distance for approximate matching
+
+name: "fuzzy-match"
+description: "Test fuzzy/approximate pattern matching"
+command: "echo 'Hello Wrold'"
+
+terminal:
+  cols: 80
+  rows: 24
+
+steps:
+  # Exact match would fail, but fuzzy allows 1-2 character edits
+  - action: wait_for_fuzzy
+    pattern: "Hello World"
+    max_distance: 2
+    timeout_ms: 2000
+
+invariants:
+  - type: cursor_bounds
+
+seed: 42
+timeout_ms: 5000

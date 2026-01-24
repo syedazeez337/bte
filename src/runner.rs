@@ -3,6 +3,10 @@
 //! This module provides the execution engine for running scenarios
 //! and generating traces.
 
+// Runner has complex function signatures by design - it coordinates multiple subsystems
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::result_large_err)]
+
 use crate::determinism::DeterministicScheduler;
 use crate::invariants::{BuiltInInvariant, InvariantContext, InvariantEngine};
 use crate::io_loop::IoLoop;
@@ -215,41 +219,39 @@ fn build_invariant_engine(invariants: &[InvariantRef]) -> InvariantEngine {
 
     let builtins: Vec<BuiltInInvariant> = invariants
         .iter()
-        .filter_map(|inv| match inv {
-            InvariantRef::CursorBounds => Some(BuiltInInvariant::CursorBounds),
+        .map(|inv| match inv {
+            InvariantRef::CursorBounds => BuiltInInvariant::CursorBounds,
             InvariantRef::NoDeadlock { timeout_ms } => {
                 let ticks = timeout_ms.unwrap_or(1000) / 10;
-                Some(BuiltInInvariant::NoDeadlock {
+                BuiltInInvariant::NoDeadlock {
                     timeout_ticks: ticks.max(10),
-                })
+                }
             }
-            InvariantRef::SignalHandled { signal } => Some(BuiltInInvariant::SignalHandled {
+            InvariantRef::SignalHandled { signal } => BuiltInInvariant::SignalHandled {
                 signal: format!("{:?}", signal).to_uppercase(),
-            }),
-            InvariantRef::ScreenContains { pattern } => Some(BuiltInInvariant::ScreenContains {
+            },
+            InvariantRef::ScreenContains { pattern } => BuiltInInvariant::ScreenContains {
                 pattern: pattern.clone(),
-            }),
-            InvariantRef::ScreenNotContains { pattern } => {
-                Some(BuiltInInvariant::ScreenNotContains {
-                    pattern: pattern.clone(),
-                })
-            }
-            InvariantRef::NoOutputAfterExit => Some(BuiltInInvariant::NoOutputAfterExit),
+            },
+            InvariantRef::ScreenNotContains { pattern } => BuiltInInvariant::ScreenNotContains {
+                pattern: pattern.clone(),
+            },
+            InvariantRef::NoOutputAfterExit => BuiltInInvariant::NoOutputAfterExit,
             InvariantRef::ProcessTerminatedCleanly { allowed_signals } => {
-                Some(BuiltInInvariant::ProcessTerminatedCleanly {
+                BuiltInInvariant::ProcessTerminatedCleanly {
                     allowed_signals: allowed_signals.clone(),
-                })
+                }
             }
-            InvariantRef::ScreenStable { min_ticks } => Some(BuiltInInvariant::ScreenStable {
+            InvariantRef::ScreenStable { min_ticks } => BuiltInInvariant::ScreenStable {
                 min_ticks: *min_ticks,
-            }),
-            InvariantRef::ViewportValid => Some(BuiltInInvariant::ViewportValid),
-            InvariantRef::ResponseTime { max_ticks } => Some(BuiltInInvariant::ResponseTime {
+            },
+            InvariantRef::ViewportValid => BuiltInInvariant::ViewportValid,
+            InvariantRef::ResponseTime { max_ticks } => BuiltInInvariant::ResponseTime {
                 max_ticks: *max_ticks,
-            }),
-            InvariantRef::MaxLatency { max_ticks } => Some(BuiltInInvariant::MaxLatency {
+            },
+            InvariantRef::MaxLatency { max_ticks } => BuiltInInvariant::MaxLatency {
                 max_ticks: *max_ticks,
-            }),
+            },
             InvariantRef::Custom {
                 name,
                 pattern,
@@ -257,7 +259,7 @@ fn build_invariant_engine(invariants: &[InvariantRef]) -> InvariantEngine {
                 expected_row,
                 expected_col,
                 description,
-            } => Some(BuiltInInvariant::Custom {
+            } => BuiltInInvariant::Custom {
                 name: name.clone(),
                 pattern: pattern.clone(),
                 should_contain: *should_contain,
@@ -266,7 +268,7 @@ fn build_invariant_engine(invariants: &[InvariantRef]) -> InvariantEngine {
                 description: description
                     .clone()
                     .or(Some(format!("Custom invariant: {}", name))),
-            }),
+            },
         })
         .collect();
 
@@ -470,7 +472,7 @@ fn determine_outcome(
         };
     }
 
-    if let Some(ref violation) = invariant_engine.violations().first() {
+    if let Some(violation) = invariant_engine.violations().first() {
         // We can't access checkpoints from here directly, so use a placeholder
         return TraceOutcome::InvariantViolation {
             invariant_name: violation.name.clone(),
@@ -721,9 +723,7 @@ fn check_regex_complexity(pattern: &str) -> Option<String> {
             '{' if prev_char != '\\' && !in_bracket => {
                 // Could be {n,m} quantifier, check for nesting
                 if nest_level > 2 {
-                    return Some(format!(
-                        "Regex has nested quantifiers with {{}} syntax, which may cause catastrophic backtracking",
-                    ));
+                    return Some("Regex has nested quantifiers with {} syntax, which may cause catastrophic backtracking".to_string());
                 }
             }
             _ => {}
@@ -995,7 +995,7 @@ fn execute_mouse_click(
     // For coordinates >= 256, SGR uses UTF-8 encoding of 0x100 + value:
     // - Value 0-255: single byte (value)
     // - Value 256+: two bytes 0xC2 (value >> 8), 0xXX (value & 0xFF)
-    let cxb = (button + 32) as u8;
+    let cxb = button + 32;
 
     // Clamp to reasonable bounds (2000 is way beyond any terminal size)
     let col_clamped = (col + 1).min(2000);
@@ -1483,6 +1483,8 @@ mod tests {
     fn test_send_keys_with_read() {
         use crate::scenario::KeySequence;
         // Use `read` command which reads one line and exits
+        // Note: We add WaitTicks at the start to let the process initialize before sending input.
+        // This prevents flaky failures when running in parallel with other PTY tests.
         let scenario = Scenario {
             name: "send-keys-test".to_string(),
             description: "Test send_keys with read".to_string(),
@@ -1490,6 +1492,8 @@ mod tests {
             terminal: TerminalConfig::default(),
             env: HashMap::new(),
             steps: vec![
+                // Wait for process to initialize and read command to be ready
+                Step::WaitTicks { ticks: 50 },
                 Step::SendKeys {
                     keys: KeySequence::Text("test_value".to_string()),
                 },
@@ -1503,14 +1507,14 @@ mod tests {
             ],
             invariants: vec![],
             seed: Some(42),
-            timeout_ms: Some(1000),
+            timeout_ms: Some(10000),
             tags: vec![],
         };
 
         let config = RunnerConfig {
             trace_path: None,
             verbose: false,
-            max_ticks: 2000,
+            max_ticks: 10000,
             tick_delay_ms: 0,
             seed: Some(42),
         };

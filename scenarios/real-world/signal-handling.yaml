@@ -1,0 +1,24 @@
+# Test signal handling in processes
+name: "signal-handling"
+description: "Test SIGTERM signal handling"
+command: "sleep 30"
+
+terminal:
+  cols: 80
+  rows: 24
+
+steps:
+  - action: wait_ticks
+    ticks: 10
+
+  - action: send_signal
+    signal: SIGTERM
+
+  - action: wait_ticks
+    ticks: 50
+
+invariants:
+  - type: cursor_bounds
+
+seed: 42
+timeout_ms: 30000
