@@ -1,335 +1,241 @@
-# Behavioral Testing Engine (BTE)
+# BTE
 
-<p align="center">
+[![CI](https://github.com/syedazeez337/bte/actions/workflows/ci.yml/badge.svg)](https://github.com/syedazeez337/bte/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.82%2B-orange.svg)](https://www.rust-lang.org/)
 
-[![Crates.io](https://img.shields.io/crates/v/bte.svg)](https://crates.io/crates/bte)
-[![CI](https://github.com/syedazeez337/bte/workflows/CI/badge.svg)](https://github.com/syedazeez337/bte/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+**Behavioral Testing Engine** — Deterministic testing for terminal applications.
 
-**Deterministic behavioral testing for terminal applications.**
+BTE is like [Playwright](https://playwright.dev/) for the terminal. It spawns real processes in a PTY, sends input, captures output, and verifies behavior automatically.
 
-</p>
+## Features
 
-BTE executes real terminal applications in a pseudo-terminal (PTY), captures all output, and verifies behavioral invariants automatically. Think of it as [Playwright](https://playwright.dev/) for CLI/TUI applications.
-
-## Scope
-
-BTE is **language-agnostic** and can test **any** terminal/CLI application, regardless of the language it's written in. Since BTE spawns real processes in a PTY and communicates via stdin/stdout/stderr, it can test applications written in:
-
-- **Rust**, Python, Go, Node.js, C/C++, Bash, and any language that runs in a terminal
-- Shell scripts, TUI frameworks (crossterm, ratatui, tview, blessed, etc.)
-- Any command-line tool with textual input/output
-
-Example test scenarios can target:
-```yaml
-# Test a Python TUI app
-command: "python3 myapp.py"
-
-# Test a Node.js CLI tool
-command: "node mycli.js"
-
-# Test a Rust binary
-command: "./my-rust-app"
-
-# Test a shell script
-command: "bash script.sh"
-```
-
-## About
-
-BTE provides a declarative, YAML-based approach to testing terminal applications:
-
-- **Real PTY execution** - Tests run against actual terminal processes
-- **Deterministic replay** - Seed-based execution for reproducible results
-- **Behavioral invariants** - Automatic verification of cursor bounds, deadlocks, screen content
-- **Signal injection** - Test SIGINT, SIGTERM, SIGKILL, and other signals
-- **Mouse support** - Click and scroll events via SGR 1006 protocol
+- **Language-agnostic** — Test any CLI/TUI app: Rust, Python, Go, Node.js, Bash, C/C++
+- **Deterministic** — Seed-based execution for reproducible tests
+- **Declarative** — Define tests in YAML, no code required
+- **Comprehensive** — Signal injection, mouse events, screen assertions, custom invariants
+- **Debuggable** — Trace recording and replay for investigating failures
 
 ## Installation
-
-### From Source
 
 ```bash
 git clone https://github.com/syedazeez337/bte.git
 cd bte
-cargo install --path .
+cargo build --release
 ```
 
-### From Crates.io
+The binary will be at `./target/release/bte`.
 
-```bash
-cargo install bte
-```
-
-### Pre-built Binaries
-
-Download pre-built binaries from the [Releases](https://github.com/syedazeez337/bte/releases) page.
+**Requirements:** Rust 1.82+, Linux (macOS experimental)
 
 ## Quick Start
 
-Create a test scenario file:
+Create `test.yaml`:
 
 ```yaml
-name: "example-test"
-command: "sh"
+name: hello-world
+command: "echo 'Hello, World!'"
+
+steps:
+  - action: wait_for
+    pattern: "Hello, World"
+
+invariants:
+  - type: cursor_bounds
+```
+
+Run it:
+
+```bash
+$ bte run test.yaml
+=== Run Result ===
+Exit code: 0
+Steps executed: 1
+Ticks: 0
+Status: SUCCESS (exit=0, ticks=0)
+```
+
+## Usage
+
+```bash
+bte run <scenario.yaml>           # Run a test
+bte run <scenario> -o trace.json  # Run and save trace
+bte validate <scenario.yaml>      # Validate syntax
+bte info <trace.json>             # Inspect trace
+bte replay <trace.json>           # Replay for verification
+```
+
+**Options:**
+
+```
+-s, --seed <N>       Override random seed
+--max-ticks <N>      Max execution ticks (default: 10000)
+-v, --verbose        Debug output
+```
+
+## Scenario Format
+
+```yaml
+name: my-test
+command: bash
+terminal: { cols: 80, rows: 24 }
 
 steps:
   - action: send_keys
-    keys: "echo 'Hello, World!'\n"
+    keys: "echo hello\n"
   - action: wait_for
-    pattern: "Hello, World!"
+    pattern: "hello"
     timeout_ms: 5000
+  - action: send_signal
+    signal: SIGTERM
 
 invariants:
   - type: cursor_bounds
   - type: no_deadlock
+    timeout_ms: 5000
 
 seed: 42
 timeout_ms: 30000
 ```
 
-Run the test:
-
-```bash
-bte run example.yaml
-```
-
-## Features
-
 ### Actions
 
 | Action | Description |
 |--------|-------------|
-| `send_keys` | Send keystrokes to the terminal |
-| `wait_for` | Wait for a regex pattern in output stream |
-| `wait_screen` | Wait for a pattern in screen content |
-| `wait_ticks` | Wait for N scheduling ticks |
-| `resize` | Change terminal dimensions |
-| `send_signal` | Send POSIX signals |
-| `mouse_click` | Mouse click at position (SGR protocol) |
-| `mouse_scroll` | Mouse scroll at position |
+| `send_keys` | Send keystrokes (`\n`, `${Enter}`, `${Ctrl_c}`) |
+| `wait_for` | Wait for regex pattern in output |
+| `wait_screen` | Wait for pattern in screen buffer |
+| `wait_ticks` | Wait N scheduling ticks |
+| `send_signal` | Send signal (SIGTERM, SIGINT, SIGKILL, etc.) |
+| `resize` | Resize terminal (cols, rows) |
+| `mouse_click` | Click at position |
+| `mouse_scroll` | Scroll at position |
 | `assert_screen` | Assert screen contains pattern |
-| `assert_not_screen` | Assert screen does not contain pattern |
 | `assert_cursor` | Assert cursor position |
 | `snapshot` | Capture screen state |
-| `check_invariant` | Manually trigger invariant check |
 
 ### Invariants
 
-| Invariant | Description |
-|-----------|-------------|
-| `cursor_bounds` | Cursor stays within screen bounds |
+| Type | Description |
+|------|-------------|
+| `cursor_bounds` | Cursor stays within screen |
 | `no_deadlock` | Process produces output within timeout |
-| `screen_contains` | Screen contains expected pattern |
-| `screen_not_contains` | Screen does not contain pattern |
-| `screen_stable` | Screen remains stable for N ticks |
-| `viewport_valid` | Viewport dimensions are valid |
-| `response_time` | Response within time limit |
-| `max_latency` | Maximum screen redraw latency |
-| `custom` | Custom invariant with pattern/cursor checks |
+| `screen_contains` | Screen contains pattern |
+| `screen_stable` | Screen unchanged for N ticks |
+| `custom` | User-defined pattern/cursor checks |
 
 ### Special Keys
 
 ```
-Enter, Escape, Tab, Backspace
-Up, Down, Left, Right
-Home, End, PageUp, PageDown
-Insert, Delete
-F1-F12
-Ctrl_a through Ctrl_z
-Alt_<key>
+${Enter}  ${Escape}  ${Tab}  ${Backspace}
+${Up}  ${Down}  ${Left}  ${Right}
+${Home}  ${End}  ${PageUp}  ${PageDown}
+${F1}..${F12}
+${Ctrl_a}..${Ctrl_z}
+${Alt_x}
 ```
 
 ## Examples
 
-### Testing a TUI Application
+**Interactive shell test:**
 
 ```yaml
-name: "fzf-search-test"
-command: "fzf"
+name: bash-test
+command: bash
 
 steps:
   - action: send_keys
-    keys: "test query"
+    keys: "ls -la\n"
   - action: wait_for
-    pattern: "test query"
+    pattern: "total"
+    timeout_ms: 5000
   - action: send_keys
-    keys: "${Enter}"
-  - action: wait_ticks
-    ticks: 5
+    keys: "exit\n"
 
 invariants:
   - type: cursor_bounds
-  - type: no_deadlock
-    timeout_ms: 10000
-
-seed: 12345
 ```
 
-### Signal Handling Test
+**Signal handling:**
 
 ```yaml
-name: "signal-test"
-command: "sh"
+name: signal-test
+command: "sleep 30"
 
 steps:
-  - action: send_keys
-    keys: "sleep 30 &\n"
   - action: wait_ticks
-    ticks: 5
+    ticks: 10
   - action: send_signal
     signal: SIGTERM
-
-invariants:
-  - type: signal_handled
-    signal: SIGTERM
-  - type: cursor_bounds
-
-timeout_ms: 30000
 ```
 
-### Mouse Interaction
+**TUI application:**
 
 ```yaml
-name: "mouse-test"
-command: "sh"
+name: fzf-test
+command: fzf
 
 steps:
-  - action: mouse_click
-    row: 0
-    col: 0
-    button: 0
-    enable_tracking: true
-  - action: mouse_scroll
-    row: 0
-    col: 0
-    direction: up
-    count: 1
+  - action: send_keys
+    keys: "query"
+  - action: wait_screen
+    pattern: "query"
+  - action: send_keys
+    keys: "${Enter}"
 
 invariants:
-  - type: cursor_bounds
+  - type: no_deadlock
+    timeout_ms: 10000
 ```
 
-## Programmatic Usage
+See [`examples/`](examples/) and [`scenarios/`](scenarios/) for more.
 
-Add BTE as a dependency:
+## Debugging
 
-```toml
-[dependencies]
-bte = "0.2"
+Save execution traces for debugging:
+
+```bash
+# Save trace
+bte run test.yaml -o trace.json
+
+# Inspect
+bte info trace.json
+
+# Replay to verify determinism
+bte replay trace.json
 ```
 
-Use the library API:
+Use verbose mode for detailed output:
 
-```rust
-use bte::{runner, scenario};
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let yaml = std::fs::read_to_string("test.yaml")?;
-    let scenario = scenario::Scenario::from_yaml(&yaml)?;
-
-    let config = runner::RunnerConfig {
-        seed: Some(42),
-        trace_path: Some("trace.json".into()),
-        ..Default::default()
-    };
-
-    let result = runner::run_scenario(&scenario, &config)?;
-
-    if result.success {
-        println!("Test passed!");
-    } else {
-        eprintln!("Test failed: exit_code={}", result.exit_code);
-    }
-
-    Ok(())
-}
+```bash
+bte -v run test.yaml
 ```
 
 ## Exit Codes
 
-| Code | Description |
-|------|-------------|
-| `0` | Success - all steps completed, invariants passed |
-| `-1` | Process terminated by signal |
-| `-2` | Invariant violation |
-| `-3` | Timeout |
-| `1` | Other error |
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Error |
+| 124+ | Signaled (124 = SIGTERM, 137 = SIGKILL) |
 
 ## Documentation
 
-- [User Guide](https://github.com/syedazeez337/bte/wiki)
-- [API Documentation](https://docs.rs/bte)
-- [Examples](scenarios/)
-- [Future Roadmap](FUTURE.md)
-
-## Project Structure
-
-```
-bte/
-├── src/
-│   ├── main.rs           # CLI entry point
-│   ├── runner.rs         # Scenario execution engine
-│   ├── scenario.rs       # YAML parsing and types
-│   ├── invariants.rs     # Invariant framework and checks
-│   ├── process.rs        # PTY process management
-│   ├── screen.rs         # Terminal screen model
-│   ├── ansi.rs           # ANSI escape sequence handling
-│   ├── vtparse.rs        # VT sequence parser
-│   ├── keys.rs           # Key injection
-│   ├── io_loop.rs        # I/O event loop
-│   ├── timing.rs         # Timing controller
-│   ├── determinism.rs    # Deterministic scheduling
-│   ├── replay.rs         # Trace replay engine
-│   ├── trace.rs          # Trace recording
-│   └── termination.rs    # Termination detection
-├── scenarios/            # Example test scenarios
-├── tests/                # Integration tests
-└── Cargo.toml
-```
-
-## Building
-
-```bash
-# Debug build
-cargo build
-
-# Release build
-cargo build --release
-
-# Run tests
-cargo test
-
-# Run benchmarks
-cargo bench
-
-# Format code
-cargo fmt
-
-# Lint
-cargo clippy
-```
-
-## Tested Applications
-
-BTE has been validated with:
-
-- **Shells**: bash, sh
-- **TUI Applications**: fzf, gitui, bottom
-- **CLI Tools**: Any command-line application
+- [Tutorial](docs/TUTORIAL.md) — Step-by-step guide
+- [API Reference](docs/API.md) — Complete documentation
+- [Changelog](CHANGELOG.md) — Version history
+- [Roadmap](FUTURE.md) — Planned features
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting PRs.
 
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for a list of changes.
-
-## Roadmap
-
-See [FUTURE.md](FUTURE.md) for the feature roadmap and implementation plan.
+```bash
+cargo test          # Run tests
+cargo clippy        # Lint
+cargo fmt           # Format
+```
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE)
